@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Step 1 - Tensor Creation</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+</head>
+<body>
+
+<h2>Step 1: Tensor Creation</h2>
+<pre id="output"></pre>
+
+<script>
+    const scalar = tf.scalar(10);
+    const vector = tf.tensor1d([1, 2, 3]);
+    const matrix = tf.tensor2d([[1, 2], [3, 4]]);
+
+    document.getElementById("output").innerText =
+    `Scalar:
+${scalar.toString()}
+
+Vector:
+${vector.toString()}
+
+Matrix:
+${matrix.toString()}`;
+
+    console.log("Step 1 Output:");
+    scalar.print();
+    vector.print();
+    matrix.print();
+</script>
+
+</body>
+</html>

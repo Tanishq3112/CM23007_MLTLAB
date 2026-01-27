@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Step 2 - Matrix Addition</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+</head>
+<body>
+
+<h2>Step 2: Matrix Addition</h2>
+<pre id="output"></pre>
+
+<script>
+    const matrixA = tf.tensor2d([[1, 2], [3, 4]]);
+    const matrixB = tf.tensor2d([[5, 6], [7, 8]]);
+    const sum = matrixA.add(matrixB);
+
+    document.getElementById("output").innerText =
+    `Matrix A:
+${matrixA.toString()}
+
+Matrix B:
+${matrixB.toString()}
+
+A + B:
+${sum.toString()}`;
+
+    console.log("Step 2 Output:");
+    matrixA.print();
+    matrixB.print();
+    sum.print();
+</script>
+
+</body>
+</html>

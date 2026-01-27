@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Step 3 - Reshape vs Flatten</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+</head>
+<body>
+
+<h2>Step 3: Reshape vs Flatten</h2>
+<pre id="output"></pre>
+
+<script>
+    const original = tf.tensor2d([[1, 2, 3], [4, 5, 6]]);
+    const reshaped = original.reshape([3, 2]);
+    const flattened = original.flatten();
+
+    document.getElementById("output").innerText =
+    `Original Tensor (2x3):
+${original.toString()}
+
+Reshaped Tensor (3x2):
+${reshaped.toString()}
+
+Flattened Tensor:
+${flattened.toString()}`;
+
+    console.log("Step 3 Output:");
+    original.print();
+    reshaped.print();
+    flattened.print();
+</script>
+
+</body>
+</html>
