@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MNIST CNN - TensorFlow.js</title>
+
+  <!-- TensorFlow.js (jsDelivr CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+
+  <style>
+    body { font-family: Arial; padding: 20px; background: #f5f5f5; }
+    .box { background: white; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+    canvas { border: 2px solid black; background: black; cursor: crosshair; }
+    button { padding: 10px 15px; margin-right: 10px; cursor: pointer; }
+    #log { background: #111; color: #0f0; padding: 10px; height: 250px; overflow-y: auto; font-family: Consolas; }
+  </style>
+</head>
+<body>
+
+  <h2>MNIST Digit Recognition (CNN) - TensorFlow.js + jsDelivr</h2>
+
+  <div class="box">
+    <button onclick="trainModel()">Train Model</button>
+    <button onclick="testModel()">Test Accuracy</button>
+    <p><b>Status:</b> <span id="status">Waiting...</span></p>
+  </div>
+
+  <div class="box">
+    <h3>Draw Digit</h3>
+    <canvas id="drawCanvas" width="280" height="280"></canvas><br><br>
+    <button onclick="clearCanvas()">Clear</button>
+    <button onclick="predictDigit()">Predict</button>
+    <p><b>Prediction:</b> <span id="prediction">-</span></p>
+  </div>
+
+  <div class="box">
+    <h3>Logs</h3>
+    <div id="log"></div>
+  </div>
+
+  <!-- MNIST Data Loader -->
+  <script src="mnist_data.js"></script>
+
+  <!-- Main Script -->
+  <script src="main.js"></script>
+</body>
+</html>
