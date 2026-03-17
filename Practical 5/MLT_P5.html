@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Object Detection</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d12;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 12px;
+      gap: 14px;
+      min-height: 100vh;
+    }
+
+    h1 { font-size: 1.4rem; font-weight: 600; }
+    .sub { font-size: 0.8rem; color: #555; }
+
+    #status-bar {
+      padding: 5px 18px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      border: 1px solid #333;
+      background: #1a1a22;
+      color: #888;
+    }
+    #status-bar.loading { background:#1e1608; color:#f0b429; border-color:#f0b42966;}
+    #status-bar.ready   { background:#0b1e12; color:#4ade80; border-color:#4ade8066;}
+    #status-bar.live    { background:#08162a; color:#60a5fa; border-color:#60a5fa66;}
+    #status-bar.error   { background:#1e0808; color:#f87171; border-color:#f8717166;}
+
+    /* ===== THE CAMERA BOX ===== */
+    #camera-box {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      background: #111;
+      border-radius: 12px;
+      border: 1px solid #222;
+      overflow: hidden;
+      /* Height will be set naturally by video */
+    }
+
+    /*
+      VIDEO: always block, always full width.
+      This is what the user sees — never hidden once started.
+    */
+    #video {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 240px;
+      border-radius: 12px;
+      background: #000;
+    }
+
+    /*
+      CANVAS: absolute overlay for drawing boxes only.
+      pointer-events: none so it never blocks interaction.
+      Background is fully transparent.
+    */
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      border-radius: 12px;
+    }
+
+    /* Shown before camera starts */
+    #placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: #111;
+      border-radius: 12px;
+      color: #444;
+      font-size: 0.9rem;
+    }
+    #placeholder svg { opacity: 0.25; }
+
+    /* Loading spinner */
+    #spinner-wrap {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: #111;
+      border-radius: 12px;
+      z-index: 10;
+    }
+    #spinner-wrap p { font-size: 0.85rem; color: #666; max-width: 260px; text-align:center; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #222;
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ===== CONTROLS ===== */
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      width: 100%;
+      max-width: 800px;
+    }
+
+    button {
+      padding: 9px 22px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #1a1a28;
+      color: #ccc;
+      font-size: 0.86rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #22223a; }
+    button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    #btn-stop {
+      background: #1e0c0c;
+      color: #f87171;
+      border-color: #5a1c1c;
+      display: none;
+    }
+    #btn-stop:hover { background: #2a1212; }
+
+    .slider-wrap { display:flex; align-items:center; gap:8px; margin-left:auto; }
+    .slider-wrap label { font-size:0.78rem; color:#555; }
+    #conf-slider { width:100px; accent-color:#60a5fa; }
+    #conf-label  { font-size:0.8rem; font-weight:600; color:#60a5fa; min-width:34px; }
+    #fps-counter { font-size:0.75rem; color:#333; }
+
+    /* ===== RESULTS ===== */
+    #results-box {
+      width: 100%;
+      max-width: 800px;
+      background: #0e1520;
+      border: 1px solid #1a2535;
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+    #results-box h2 {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #2a3d5a;
+      margin-bottom: 12px;
+    }
+    #result-items { display:flex; flex-direction:column; gap:10px; min-height:40px; }
+
+    .det-row { display:flex; align-items:center; gap:12px; }
+    .det-name {
+      font-size: 0.88rem; font-weight: 600;
+      min-width: 120px; text-transform: capitalize;
+    }
+    .det-track {
+      flex: 1; height: 7px;
+      background: #0a1018; border-radius: 4px; overflow: hidden;
+    }
+    .det-fill { height: 100%; border-radius: 4px; transition: width 0.2s; }
+    .det-pct  { font-size:0.8rem; font-weight:600; min-width:38px; text-align:right; }
+    .det-cnt  { font-size:0.72rem; color:#253550; min-width:30px; text-align:right; }
+
+    #sentence {
+      margin-top: 14px;
+      font-size: 0.96rem;
+      font-weight: 500;
+      color: #4a6a8a;
+      min-height: 1.5rem;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Webcam Object Detection</h1>
+  <p class="sub">Real-time · COCO-SSD · TensorFlow.js · Runs 100% in your browser</p>
+
+  <div id="status-bar" class="loading">Loading model…</div>
+
+  <!-- Camera box -->
+  <div id="camera-box">
+    <!-- Loading overlay -->
+    <div id="spinner-wrap">
+      <div class="spinner"></div>
+      <p id="spinner-msg">Downloading model, please wait…</p>
+    </div>
+
+    <!-- Idle overlay (shown after model loads, before camera starts) -->
+    <div id="placeholder">
+      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.2">
+        <path d="M15 10l4.553-2.069A1 1 0 0121 8.914V15.086a1 1 0 01-1.447.917L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+      </svg>
+      <span id="idle-msg">Click <b style="color:#aaa">Start Camera</b> to begin</span>
+      <small style="font-size:0.74rem; color:#333;">Nothing leaves your device</small>
+    </div>
+
+    <!-- THE ACTUAL VIDEO — stays visible the whole time once started -->
+    <video id="video" autoplay playsinline muted></video>
+
+    <!-- Transparent canvas drawn on top for bounding boxes -->
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls">
+    <button id="btn-start" disabled>▶ Start Camera</button>
+    <button id="btn-stop">■ Stop</button>
+    <span id="fps-counter">– fps</span>
+    <div class="slider-wrap">
+      <label>Confidence</label>
+      <input type="range" id="conf-slider" min="10" max="90" value="35" step="5">
+      <span id="conf-label">35%</span>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="results-box">
+    <h2>What's in front of the camera</h2>
+    <div id="result-items">
+      <span style="color:#1e2e40; font-size:0.85rem;">Start the camera to see detections.</span>
+    </div>
+    <div id="sentence"></div>
+  </div>
+
+<script>
+// ─── Element refs ─────────────────────────────────────────────────────────────
+const video       = document.getElementById('video');
+const overlay     = document.getElementById('overlay');
+const ctx         = overlay.getContext('2d');
+const btnStart    = document.getElementById('btn-start');
+const btnStop     = document.getElementById('btn-stop');
+const statusBar   = document.getElementById('status-bar');
+const spinnerWrap = document.getElementById('spinner-wrap');
+const spinnerMsg  = document.getElementById('spinner-msg');
+const placeholder = document.getElementById('placeholder');
+const idleMsg     = document.getElementById('idle-msg');
+const confSlider  = document.getElementById('conf-slider');
+const confLabel   = document.getElementById('conf-label');
+const resultItems = document.getElementById('result-items');
+const sentence    = document.getElementById('sentence');
+const fpsCounter  = document.getElementById('fps-counter');
+
+// ─── Colour palette ───────────────────────────────────────────────────────────
+const PALETTE = [
+  { bg:'#0e1f3a', text:'#60a5fa', accent:'#3b82f6' },
+  { bg:'#0a2018', text:'#4ade80', accent:'#22c55e' },
+  { bg:'#2a1e04', text:'#fbbf24', accent:'#f59e0b' },
+  { bg:'#2a0e2a', text:'#e879f9', accent:'#d946ef' },
+  { bg:'#2a0c0c', text:'#f87171', accent:'#ef4444' },
+  { bg:'#042422', text:'#2dd4bf', accent:'#14b8a6' },
+  { bg:'#2a1408', text:'#fb923c', accent:'#f97316' },
+  { bg:'#0e2614', text:'#86efac', accent:'#4ade80' },
+];
+const colorMap = {};
+let colorIdx = 0;
+function getColor(label) {
+  if (!colorMap[label]) colorMap[label] = PALETTE[colorIdx++ % PALETTE.length];
+  return colorMap[label];
+}
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let model   = null;
+let stream  = null;
+let rafId   = null;
+let active  = false;
+let minConf = 0.35;
+let prevTs  = 0;
+
+// ─── Confidence slider ────────────────────────────────────────────────────────
+confSlider.addEventListener('input', () => {
+  minConf = confSlider.value / 100;
+  confLabel.textContent = confSlider.value + '%';
+});
+
+// ─── Status helper ────────────────────────────────────────────────────────────
+function setStatus(cls, msg) {
+  statusBar.className = cls;
+  statusBar.textContent = msg;
+}
+
+// ─── 1. Load COCO-SSD model ───────────────────────────────────────────────────
+async function loadModel() {
+  try {
+    spinnerMsg.textContent = 'Initialising TensorFlow.js…';
+    await tf.ready();
+    spinnerMsg.textContent = 'Downloading COCO-SSD (~20 MB)…';
+    model = await cocoSsd.load({ base: 'mobilenet_v2' });
+
+    spinnerWrap.style.display = 'none';
+    placeholder.style.display = 'flex';
+    btnStart.disabled = false;
+    setStatus('ready', 'Model ready — click Start Camera');
+  } catch (err) {
+    spinnerMsg.textContent = '⚠ Failed to load model. Check your connection.';
+    setStatus('error', 'Model load failed');
+    console.error(err);
+  }
+}
+
+// ─── 2. Start camera ──────────────────────────────────────────────────────────
+btnStart.addEventListener('click', async () => {
+  // Must be called directly from a user gesture (click)
+  try {
+    setStatus('loading', 'Requesting camera…');
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false
+    });
+
+    // Attach stream to video element
+    video.srcObject = stream;
+
+    // Wait for video to actually have dimensions
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = reject;
+    });
+
+    await video.play();
+
+    // Hide placeholder, show video
+    placeholder.style.display = 'none';
+
+    btnStart.style.display = 'none';
+    btnStop.style.display  = 'inline-block';
+
+    active = true;
+    setStatus('live', 'Live — detecting objects…');
+    requestAnimationFrame(detect);
+
+  } catch (err) {
+    console.error('Camera error:', err);
+
+    let msg = 'Camera access denied.';
+    if (err.name === 'NotFoundError')     msg = 'No camera found on this device.';
+    if (err.name === 'NotAllowedError')   msg = 'Camera permission denied — allow it in browser settings.';
+    if (err.name === 'NotReadableError')  msg = 'Camera is in use by another app.';
+
+    idleMsg.innerHTML = `<span style="color:#f87171">${msg}</span>`;
+    placeholder.style.display = 'flex';
+    setStatus('error', msg);
+  }
+});
+
+// ─── 3. Stop camera ───────────────────────────────────────────────────────────
+btnStop.addEventListener('click', () => {
+  active = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+
+  video.srcObject = null;
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  placeholder.style.display = 'flex';
+  idleMsg.innerHTML = 'Click <b style="color:#aaa">Start Camera</b> to begin';
+  btnStop.style.display  = 'none';
+  btnStart.style.display = 'inline-block';
+
+  fpsCounter.textContent = '– fps';
+  resultItems.innerHTML  = '<span style="color:#1e2e40;font-size:0.85rem;">Start the camera to see detections.</span>';
+  sentence.textContent   = '';
+  setStatus('ready', 'Model ready — click Start Camera');
+});
+
+// ─── 4. Detection loop ────────────────────────────────────────────────────────
+async function detect(ts) {
+  if (!active) return;
+
+  // Wait for real video dimensions
+  if (!video.videoWidth || !video.videoHeight) {
+    rafId = requestAnimationFrame(detect);
+    return;
+  }
+
+  // Keep canvas in sync with video dimensions
+  if (overlay.width !== video.videoWidth || overlay.height !== video.videoHeight) {
+    overlay.width  = video.videoWidth;
+    overlay.height = video.videoHeight;
+  }
+
+  // Clear previous boxes (the <video> element shows the live feed underneath)
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  // Run inference
+  let preds = [];
+  try {
+    preds = await model.detect(video, 20, minConf);
+  } catch(e) {
+    rafId = requestAnimationFrame(detect);
+    return;
+  }
+
+  // Aggregate per-class stats
+  const best  = {};   // class -> highest score
+  const count = {};   // class -> instance count
+
+  const fontPx = Math.max(14, overlay.width / 50);
+  ctx.font = `600 ${fontPx}px 'Segoe UI', Arial, sans-serif`;
+
+  for (const p of preds) {
+    if (p.score < minConf) continue;
+    const c = getColor(p.class);
+    const [x, y, w, h] = p.bbox;
+
+    // Box stroke
+    ctx.strokeStyle = c.accent;
+    ctx.lineWidth   = Math.max(2, overlay.width / 300);
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 8);
+    ctx.stroke();
+
+    // Tinted fill
+    ctx.fillStyle = c.bg + '66';
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 8);
+    ctx.fill();
+
+    // Label pill
+    const lbl = `${p.class}  ${Math.round(p.score * 100)}%`;
+    const tw  = ctx.measureText(lbl).width;
+    const ph  = fontPx + 12;
+    const pw  = tw + 20;
+    const lx  = x;
+    const ly  = y > ph + 4 ? y - ph - 2 : y + h + 2;
+
+    ctx.fillStyle = c.accent;
+    ctx.beginPath();
+    ctx.roundRect(lx, ly, pw, ph, 5);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(lbl, lx + 10, ly + fontPx + 4);
+
+    if (!best[p.class] || p.score > best[p.class]) best[p.class] = p.score;
+    count[p.class] = (count[p.class] || 0) + 1;
+  }
+
+  // FPS
+  if (ts - prevTs > 0) fpsCounter.textContent = Math.round(1000 / (ts - prevTs)) + ' fps';
+  prevTs = ts;
+
+  // Update results
+  showResults(best, count);
+
+  rafId = requestAnimationFrame(detect);
+}
+
+// ─── 5. Results panel ─────────────────────────────────────────────────────────
+function showResults(best, count) {
+  const labels = Object.keys(best).sort((a, b) => best[b] - best[a]);
+
+  if (!labels.length) {
+    resultItems.innerHTML = '<span style="color:#1e2e40;font-size:0.85rem;">No objects detected — try pointing at something.</span>';
+    sentence.textContent  = '';
+    return;
+  }
+
+  resultItems.innerHTML = labels.map(lbl => {
+    const c   = getColor(lbl);
+    const pct = Math.round(best[lbl] * 100);
+    const n   = count[lbl];
+    return `
+      <div class="det-row">
+        <span class="det-name" style="color:${c.text};">${lbl}</span>
+        <div class="det-track">
+          <div class="det-fill" style="width:${pct}%; background:${c.accent};"></div>
+        </div>
+        <span class="det-pct" style="color:${c.accent};">${pct}%</span>
+        <span class="det-cnt">${n > 1 ? '×' + n : ''}</span>
+      </div>`;
+  }).join('');
+
+  // Human-readable summary
+  const top   = labels.slice(0, 3);
+  const parts = top.map(l => {
+    const n = count[l];
+    return n > 1
+      ? `${n} ${l}s`
+      : (/^[aeiou]/i.test(l) ? 'an ' : 'a ') + l;
+  });
+  const joined = parts.length === 1
+    ? parts[0]
+    : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+
+  sentence.textContent = '👁 I can see ' + joined + '.';
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+loadModel();
+</script>
+</body>
+</html>

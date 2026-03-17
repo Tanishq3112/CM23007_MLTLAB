@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Step 1 — Webcam + MobileNet Classification</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a0f;
+    color: #e2e8f0;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    gap: 20px;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 1.1rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #38bdf8;
+    border-bottom: 1px solid #1e3a5f;
+    padding-bottom: 8px;
+    width: 100%;
+    max-width: 640px;
+  }
+  h1 span { color: #64748b; font-size: 0.75rem; margin-left: 10px; }
+  #status {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    letter-spacing: 0.05em;
+    min-height: 20px;
+  }
+  video {
+    width: 640px; max-width: 100%;
+    border-radius: 4px;
+    border: 1px solid #1e3a5f;
+    display: block;
+  }
+  #results {
+    width: 640px; max-width: 100%;
+    background: #0f172a;
+    border: 1px solid #1e3a5f;
+    border-radius: 4px;
+    padding: 16px;
+  }
+  .result-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 0.85rem;
+  }
+  .label { color: #e2e8f0; max-width: 65%; }
+  .bar-wrap {
+    flex: 1;
+    height: 6px;
+    background: #1e293b;
+    border-radius: 99px;
+    margin: 0 12px;
+    overflow: hidden;
+  }
+  .bar { height: 100%; background: #38bdf8; border-radius: 99px; transition: width 0.2s ease; }
+  .pct { color: #38bdf8; width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
+  #results-title { color: #64748b; font-size: 0.7rem; letter-spacing: 0.15em; margin-bottom: 10px; text-transform: uppercase; }
+  button {
+    padding: 10px 28px;
+    background: #0369a1;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  button:hover { background: #0284c7; }
+  button:disabled { background: #1e3a5f; color: #64748b; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<h1>Step 1 <span>// Webcam Capture + MobileNet Classify</span></h1>
+<div id="status">⏳ Loading MobileNet model…</div>
+<video id="webcam" autoplay playsinline muted></video>
+<div id="results">
+  <div id="results-title">Top-3 Predictions</div>
+  <div id="pred-list"><span style="color:#475569">Waiting for inference…</span></div>
+</div>
+<button id="startBtn" disabled>Start Camera</button>
+
+<script>
+/* ============================================================
+   STEP 1 — Core Logic
+   - Load MobileNet via TF.js
+   - Access webcam via getUserMedia
+   - Run classify() on each animation frame
+   - Display top-3 predictions + probabilities
+   ============================================================ */
+
+let model = null;
+let running = false;
+
+const video    = document.getElementById('webcam');
+const status   = document.getElementById('status');
+const predList = document.getElementById('pred-list');
+const startBtn = document.getElementById('startBtn');
+
+// ── 1. Load Model ──────────────────────────────────────────────
+async function loadModel() {
+  status.textContent = '⏳ Loading MobileNet… (first load may take ~10s)';
+  model = await mobilenet.load({ version: 2, alpha: 1.0 });
+  status.textContent = '✅ Model ready — click Start Camera';
+  startBtn.disabled = false;
+}
+
+// ── 2. Start Webcam ────────────────────────────────────────────
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: 'environment' },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    status.textContent = '📷 Camera active — running inference…';
+    running = true;
+    startBtn.textContent = 'Stop';
+    startBtn.onclick = stopCamera;
+    inferLoop();
+  } catch (err) {
+    status.textContent = '❌ Camera error: ' + err.message;
+  }
+}
+
+function stopCamera() {
+  running = false;
+  video.srcObject?.getTracks().forEach(t => t.stop());
+  video.srcObject = null;
+  status.textContent = '⛔ Camera stopped.';
+  startBtn.textContent = 'Start Camera';
+  startBtn.onclick = startCamera;
+  predList.innerHTML = '<span style="color:#475569">Stopped.</span>';
+}
+
+// ── 3. Inference Loop ──────────────────────────────────────────
+async function inferLoop() {
+  if (!running) return;
+
+  // classify() internally reads the video element as a tensor
+  const predictions = await model.classify(video, 3); // top-3
+
+  renderPredictions(predictions);
+
+  requestAnimationFrame(inferLoop); // schedule next frame
+}
+
+// ── 4. Render Results ──────────────────────────────────────────
+function renderPredictions(preds) {
+  predList.innerHTML = preds.map(p => {
+    const pct = (p.probability * 100).toFixed(1);
+    const barW = (p.probability * 100).toFixed(0);
+    const label = p.className.split(',')[0]; // first alias only
+    return `
+      <div class="result-row">
+        <span class="label">${label}</span>
+        <div class="bar-wrap"><div class="bar" style="width:${barW}%"></div></div>
+        <span class="pct">${pct}%</span>
+      </div>`;
+  }).join('');
+}
+
+// ── Boot ───────────────────────────────────────────────────────
+startBtn.onclick = startCamera;
+loadModel();
+</script>
+</body>
+</html>

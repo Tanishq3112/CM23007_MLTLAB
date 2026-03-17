@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>MNIST CNN - TensorFlow.js</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+
+<style>
+
+body{
+    font-family: 'Segoe UI', sans-serif;
+    margin:0;
+    background: linear-gradient(135deg,#667eea,#764ba2);
+    color:#333;
+}
+
+/* Main Container */
+
+.container{
+    max-width:1100px;
+    margin:auto;
+    padding:30px;
+}
+
+/* Title */
+
+.title{
+    text-align:center;
+    color:white;
+    margin-bottom:30px;
+}
+
+/* Cards */
+
+.card{
+    background:white;
+    border-radius:12px;
+    padding:20px;
+    margin-bottom:25px;
+    box-shadow:0 6px 15px rgba(0,0,0,0.2);
+}
+
+/* Buttons */
+
+button{
+    padding:12px 18px;
+    border:none;
+    border-radius:8px;
+    margin:5px;
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    transition:0.2s;
+}
+
+button:hover{
+    transform:scale(1.05);
+}
+
+.train{
+    background:#28a745;
+    color:white;
+}
+
+.test{
+    background:#007bff;
+    color:white;
+}
+
+.clear{
+    background:#dc3545;
+    color:white;
+}
+
+.predict{
+    background:#ff9800;
+    color:white;
+}
+
+/* Canvas */
+
+canvas{
+    border:3px solid #333;
+    border-radius:10px;
+    background:black;
+    cursor:crosshair;
+}
+
+/* Status */
+
+.status{
+    font-size:16px;
+    margin-top:10px;
+}
+
+/* Prediction */
+
+.prediction{
+    font-size:28px;
+    font-weight:bold;
+    color:#ff5722;
+}
+
+/* Logs */
+
+#log{
+    background:#0d1117;
+    color:#00ff7f;
+    height:250px;
+    overflow-y:auto;
+    padding:10px;
+    border-radius:8px;
+    font-family:Consolas;
+}
+
+.canvas-center{
+    text-align:center;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1 class="title">🧠 MNIST Digit Recognition (CNN)</h1>
+
+<!-- Training Section -->
+
+<div class="card">
+
+<h3>Model Training</h3>
+
+<button class="train" onclick="trainModel()">Train Model</button>
+<button class="test" onclick="testModel()">Test Accuracy</button>
+
+<p class="status">
+<b>Status:</b>
+<span id="status">Waiting for training...</span>
+</p>
+
+</div>
+
+<!-- Drawing Section -->
+
+<div class="card canvas-center">
+
+<h3>Draw Digit</h3>
+
+<canvas id="drawCanvas" width="280" height="280"></canvas>
+
+<br><br>
+
+<button class="clear" onclick="clearCanvas()">Clear</button>
+<button class="predict" onclick="predictDigit()">Predict</button>
+
+<p>
+<b>Prediction:</b>
+<span id="prediction" class="prediction">-</span>
+</p>
+
+</div>
+
+<!-- Logs -->
+
+<div class="card">
+
+<h3>Training Logs</h3>
+
+<div id="log"></div>
+
+</div>
+
+</div>
+
+<!-- MNIST Data Loader -->
+
+<script src="mnist_data.js"></script>
+
+<!-- Main Script -->
+
+<script src="main.js"></script>
+
+</body>
+</html>

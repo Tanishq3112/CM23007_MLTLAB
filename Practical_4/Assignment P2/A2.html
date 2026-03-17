@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MNIST CNN - Client Side (Single File)</title>
+
+  <!-- TensorFlow.js via jsDelivr CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    h2 { margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card {
+      background: white; padding: 16px; border-radius: 14px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    canvas { border: 2px solid #000; background: black; cursor: crosshair; border-radius: 8px; }
+    button {
+      padding: 10px 14px; border: none; border-radius: 10px;
+      cursor: pointer; margin-right: 10px; font-weight: bold;
+    }
+    .btn { background: #007bff; color: white; }
+    .btn-red { background: #dc3545; color: white; }
+    .btn-green { background: #28a745; color: white; }
+
+    #log {
+      background: #111; color: #0f0; padding: 12px;
+      height: 260px; overflow-y: auto; border-radius: 10px;
+      font-family: Consolas, monospace; font-size: 13px;
+    }
+
+    .big { font-size: 22px; font-weight: bold; }
+    .chartBox { background: #fff; padding: 10px; border-radius: 10px; }
+    .row { display:flex; gap: 10px; flex-wrap: wrap; }
+  </style>
+</head>
+
+<body>
+  <h2>MNIST Digit Recognition using CNN (Client Side)</h2>
+  <p><b>TensorFlow.js loaded using jsDelivr CDN</b> | Training: <b>5 Epochs</b></p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>1) Train & Test Model</h3>
+      <div class="row">
+        <button class="btn" onclick="trainModel()">Train Model (5 Epochs)</button>
+        <button class="btn-green" onclick="testModel()">Test Accuracy</button>
+      </div>
+
+      <p><b>Status:</b> <span id="status">Waiting...</span></p>
+
+      <hr>
+
+      <h3>2) Draw Digit & Predict</h3>
+      <canvas id="drawCanvas" width="280" height="280"></canvas>
+      <br><br>
+      <div class="row">
+        <button class="btn-red" onclick="clearCanvas()">Clear</button>
+        <button class="btn-green" onclick="predictDigit()">Predict</button>
+      </div>
+
+      <p class="big">Prediction: <span id="prediction">-</span></p>
+    </div>
+
+    <div class="card">
+      <h3>Logs / Output</h3>
+      <div id="log"></div>
+
+      <hr>
+
+      <h3>Visualization</h3>
+      <div class="chartBox">
+        <canvas id="chart" width="500" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------
+    // Utility logging
+    // -------------------------
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+    const predictionEl = document.getElementById("prediction");
+
+    function log(msg) {
+      logEl.innerHTML += msg + "<br>";
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    // -------------------------
+    // Simple chart drawing (Loss & Accuracy)
+    // -------------------------
+    const chartCanvas = document.getElementById("chart");
+    const chartCtx = chartCanvas.getContext("2d");
+
+    function drawChart(lossArr, accArr) {
+      chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+
+      // axes
+      chartCtx.beginPath();
+      chartCtx.moveTo(40, 10);
+      chartCtx.lineTo(40, 240);
+      chartCtx.lineTo(480, 240);
+      chartCtx.stroke();
+
+      chartCtx.font = "12px Arial";
+      chartCtx.fillText("Epochs", 230, 255);
+      chartCtx.fillText("Value", 5, 20);
+
+      // normalize
+      const maxLoss = Math.max(...lossArr);
+      const maxAcc = 1;
+
+      function plotLine(arr, maxVal, offsetY, label) {
+        chartCtx.beginPath();
+        for (let i = 0; i < arr.length; i++) {
+          const x = 40 + (i * (440 / (arr.length - 1)));
+          const y = 240 - (arr[i] / maxVal) * 200;
+          if (i === 0) chartCtx.moveTo(x, y);
+          else chartCtx.lineTo(x, y);
+        }
+        chartCtx.stroke();
+
+        chartCtx.fillText(label, 420, offsetY);
+      }
+
+      // Loss line
+      chartCtx.strokeStyle = "red";
+      plotLine(lossArr, maxLoss || 1, 20, "Loss");
+
+      // Accuracy line
+      chartCtx.strokeStyle = "green";
+      plotLine(accArr, maxAcc, 40, "Accuracy");
+
+      chartCtx.strokeStyle = "black";
+    }
+
+    // -------------------------
+    // MNIST DATA LOADER (embedded)
+    // -------------------------
+    class MnistData {
+      constructor() {
+        this.IMAGE_SIZE = 784;
+        this.NUM_CLASSES = 10;
+        this.NUM_DATASET_ELEMENTS = 65000;
+        this.NUM_TRAIN_ELEMENTS = 55000;
+        this.NUM_TEST_ELEMENTS = this.NUM_DATASET_ELEMENTS - this.NUM_TRAIN_ELEMENTS;
+
+        this.MNIST_IMAGES_SPRITE_PATH =
+          "https://storage.googleapis.com/learnjs-data/model-builder/mnist_images.png";
+        this.MNIST_LABELS_PATH =
+          "https://storage.googleapis.com/learnjs-data/model-builder/mnist_labels_uint8";
+      }
+
+      async load() {
+        const img = new Image();
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+
+        const imgRequest = new Promise((resolve) => {
+          img.crossOrigin = "";
+          img.onload = () => {
+            const datasetBytesBuffer =
+              new ArrayBuffer(this.NUM_DATASET_ELEMENTS * this.IMAGE_SIZE * 4);
+
+            const chunkSize = 5000;
+            canvas.width = img.width;
+            canvas.height = chunkSize;
+
+            for (let i = 0; i < this.NUM_DATASET_ELEMENTS / chunkSize; i++) {
+              const datasetBytesView = new Float32Array(
+                datasetBytesBuffer,
+                i * this.IMAGE_SIZE * chunkSize * 4,
+                this.IMAGE_SIZE * chunkSize
+              );
+
+              ctx.drawImage(
+                img,
+                0,
+                i * chunkSize,
+                img.width,
+                chunkSize,
+                0,
+                0,
+                img.width,
+                chunkSize
+              );
+
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+              for (let j = 0; j < imageData.data.length / 4; j++) {
+                datasetBytesView[j] = imageData.data[j * 4] / 255;
+              }
+            }
+
+            this.datasetImages = new Float32Array(datasetBytesBuffer);
+            resolve();
+          };
+
+          img.src = this.MNIST_IMAGES_SPRITE_PATH;
+        });
+
+        const labelsRequest = fetch(this.MNIST_LABELS_PATH);
+        const [, labelsResponse] = await Promise.all([imgRequest, labelsRequest]);
+
+        this.datasetLabels = new Uint8Array(await labelsResponse.arrayBuffer());
+
+        this.trainIndices = tf.util.createShuffledIndices(this.NUM_TRAIN_ELEMENTS);
+        this.testIndices = tf.util.createShuffledIndices(this.NUM_TEST_ELEMENTS);
+
+        this.trainImages = this.datasetImages.slice(
+          0,
+          this.IMAGE_SIZE * this.NUM_TRAIN_ELEMENTS
+        );
+        this.testImages = this.datasetImages.slice(
+          this.IMAGE_SIZE * this.NUM_TRAIN_ELEMENTS
+        );
+
+        this.trainLabels = this.datasetLabels.slice(
+          0,
+          this.NUM_CLASSES * this.NUM_TRAIN_ELEMENTS
+        );
+        this.testLabels = this.datasetLabels.slice(
+          this.NUM_CLASSES * this.NUM_TRAIN_ELEMENTS
+        );
+
+        this.trainIndex = 0;
+        this.testIndex = 0;
+      }
+
+      nextTrainBatch(batchSize) {
+        return this.nextBatch(
+          batchSize,
+          [this.trainImages, this.trainLabels],
+          () => {
+            this.trainIndex = (this.trainIndex + 1) % this.trainIndices.length;
+            return this.trainIndices[this.trainIndex];
+          }
+        );
+      }
+
+      nextTestBatch(batchSize) {
+        return this.nextBatch(
+          batchSize,
+          [this.testImages, this.testLabels],
+          () => {
+            this.testIndex = (this.testIndex + 1) % this.testIndices.length;
+            return this.testIndices[this.testIndex];
+          }
+        );
+      }
+
+      nextBatch(batchSize, data, indexFn) {
+        const batchImagesArray = new Float32Array(batchSize * this.IMAGE_SIZE);
+        const batchLabelsArray = new Uint8Array(batchSize * this.NUM_CLASSES);
+
+        for (let i = 0; i < batchSize; i++) {
+          const idx = indexFn();
+
+          const image = data[0].slice(
+            idx * this.IMAGE_SIZE,
+            idx * this.IMAGE_SIZE + this.IMAGE_SIZE
+          );
+          batchImagesArray.set(image, i * this.IMAGE_SIZE);
+
+          const label = data[1].slice(
+            idx * this.NUM_CLASSES,
+            idx * this.NUM_CLASSES + this.NUM_CLASSES
+          );
+          batchLabelsArray.set(label, i * this.NUM_CLASSES);
+        }
+
+        const xs = tf
+          .tensor2d(batchImagesArray, [batchSize, this.IMAGE_SIZE])
+          .reshape([batchSize, 28, 28, 1]);
+        const labels = tf.tensor2d(batchLabelsArray, [batchSize, this.NUM_CLASSES]);
+
+        return { xs, labels };
+      }
+    }
+
+    // -------------------------
+    // Model
+    // -------------------------
+    let model;
+    let data;
+    let isTrained = false;
+
+    function buildModel() {
+      const m = tf.sequential();
+
+      m.add(tf.layers.conv2d({
+        inputShape: [28, 28, 1],
+        filters: 32,
+        kernelSize: 3,
+        activation: "relu"
+      }));
+      m.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
+
+      m.add(tf.layers.conv2d({
+        filters: 64,
+        kernelSize: 3,
+        activation: "relu"
+      }));
+      m.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
+
+      m.add(tf.layers.flatten());
+      m.add(tf.layers.dense({ units: 128, activation: "relu" }));
+      m.add(tf.layers.dropout({ rate: 0.3 }));
+      m.add(tf.layers.dense({ units: 10, activation: "softmax" }));
+
+      m.compile({
+        optimizer: tf.train.adam(),
+        loss: "categoricalCrossentropy",
+        metrics: ["accuracy"]
+      });
+
+      return m;
+    }
+
+    // -------------------------
+    // Train (5 epochs)
+    // -------------------------
+    async function trainModel() {
+      statusEl.innerText = "Loading dataset...";
+      log("Loading MNIST dataset...");
+      data = new MnistData();
+      await data.load();
+
+      statusEl.innerText = "Building CNN model...";
+      log("Building CNN model...");
+      model = buildModel();
+      model.summary();
+
+      statusEl.innerText = "Training started...";
+      log("Training started (5 epochs)...");
+
+      const BATCH_SIZE = 128;
+      const TRAIN_BATCHES = 150;
+
+      const losses = [];
+      const accs = [];
+
+      for (let epoch = 0; epoch < 5; epoch++) {
+        let epochLoss = 0;
+        let epochAcc = 0;
+
+        for (let i = 0; i < TRAIN_BATCHES; i++) {
+          const batch = data.nextTrainBatch(BATCH_SIZE);
+
+          const history = await model.fit(batch.xs, batch.labels, {
+            batchSize: BATCH_SIZE,
+            epochs: 1,
+            verbose: 0
+          });
+
+          epochLoss += history.history.loss[0];
+          epochAcc += history.history.acc[0];
+
+          batch.xs.dispose();
+          batch.labels.dispose();
+        }
+
+        const avgLoss = epochLoss / TRAIN_BATCHES;
+        const avgAcc = epochAcc / TRAIN_BATCHES;
+
+        losses.push(avgLoss);
+        accs.push(avgAcc);
+
+        log(`Epoch ${epoch + 1} => loss=${avgLoss.toFixed(4)}, acc=${(avgAcc * 100).toFixed(2)}%`);
+        drawChart(losses, accs);
+      }
+
+      isTrained = true;
+      statusEl.innerText = "Training complete ✅";
+      log("Training completed successfully ✅");
+    }
+
+    // -------------------------
+    // Test
+    // -------------------------
+    async function testModel() {
+      if (!isTrained) {
+        alert("Train the model first!");
+        return;
+      }
+
+      statusEl.innerText = "Testing...";
+      log("Testing started...");
+
+      const TEST_BATCH_SIZE = 1000;
+      const TEST_BATCHES = 10;
+      let totalAcc = 0;
+
+      for (let i = 0; i < TEST_BATCHES; i++) {
+        const batch = data.nextTestBatch(TEST_BATCH_SIZE);
+
+        const evalOutput = model.evaluate(batch.xs, batch.labels, {
+          batchSize: TEST_BATCH_SIZE,
+          verbose: 0
+        });
+
+        const acc = (await evalOutput[1].data())[0];
+        totalAcc += acc;
+
+        batch.xs.dispose();
+        batch.labels.dispose();
+      }
+
+      const finalAcc = (totalAcc / TEST_BATCHES) * 100;
+      log(`Final Test Accuracy: ${finalAcc.toFixed(2)}%`);
+      statusEl.innerText = "Testing complete ✅";
+    }
+
+    // -------------------------
+    // Canvas Drawing
+    // -------------------------
+    const canvas = document.getElementById("drawCanvas");
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let drawing = false;
+
+    canvas.addEventListener("mousedown", () => drawing = true);
+    canvas.addEventListener("mouseup", () => drawing = false);
+    canvas.addEventListener("mouseleave", () => drawing = false);
+
+    canvas.addEventListener("mousemove", (e) => {
+      if (!drawing) return;
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(e.offsetX, e.offsetY, 12, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    function clearCanvas() {
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      predictionEl.innerText = "-";
+      log("Canvas cleared.");
+    }
+
+    // -------------------------
+    // Predict
+    // -------------------------
+    async function predictDigit() {
+      if (!isTrained) {
+        alert("Train the model first!");
+        return;
+      }
+
+      const imgData = ctx.getImageData(0, 0, 280, 280);
+      let pixels = [];
+
+      for (let y = 0; y < 28; y++) {
+        for (let x = 0; x < 28; x++) {
+          let sum = 0;
+          for (let yy = 0; yy < 10; yy++) {
+            for (let xx = 0; xx < 10; xx++) {
+              const px = ((y * 10 + yy) * 280 + (x * 10 + xx)) * 4;
+              sum += imgData.data[px];
+            }
+          }
+          pixels.push(sum / (10 * 10 * 255));
+        }
+      }
+
+      const input = tf.tensor4d(pixels, [1, 28, 28, 1]);
+      const pred = model.predict(input);
+      const digit = pred.argMax(1).dataSync()[0];
+
+      predictionEl.innerText = digit;
+      log("Predicted Digit: " + digit);
+
+      input.dispose();
+      pred.dispose();
+    }
+  </script>
+</body>
+</html>

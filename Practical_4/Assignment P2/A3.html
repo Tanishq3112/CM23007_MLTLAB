@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MNIST Dense vs CNN (TFJS)</title>
+
+  <!-- TensorFlow.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+
+  <style>
+    body { font-family: Arial; }
+    button { padding: 8px 16px; font-size: 16px; }
+    #log { margin-top: 10px; font-size: 14px; }
+    canvas { border: 1px solid #999; margin-top: 10px; }
+  </style>
+</head>
+
+<body>
+
+<h2>Digit Recognition (MNIST)</h2>
+<h3>Dense Network vs CNN Comparison</h3>
+
+<button onclick="start()">Start Training</button>
+
+<div id="log"></div>
+
+<h3>Accuracy Comparison Chart</h3>
+<canvas id="chart" width="400" height="300"></canvas>
+
+<script>
+const logDiv = document.getElementById("log");
+function log(msg) {
+  console.log(msg.replace(/<[^>]*>/g, ""));
+  logDiv.innerHTML += msg + "<br>";
+}
+
+// 🔹 Setup backend
+async function setupBackend() {
+  await tf.setBackend("cpu");
+  await tf.ready();
+  log("<b>Backend set to CPU</b>");
+}
+
+// 🔹 MNIST dataset loading (client side)
+const IMAGE_SIZE = 784;
+const NUM_CLASSES = 10;
+const DATASET_SIZE = 1000;
+
+const MNIST_IMAGES =
+  "https://storage.googleapis.com/learnjs-data/model-builder/mnist_images.png";
+const MNIST_LABELS =
+  "https://storage.googleapis.com/learnjs-data/model-builder/mnist_labels_uint8";
+
+async function loadMNIST() {
+  log("Loading MNIST dataset...");
+
+  const img = new Image();
+  img.crossOrigin = "";
+  img.src = MNIST_IMAGES;
+  await new Promise(r => img.onload = r);
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = img.width;
+  canvas.height = img.height;
+  ctx.drawImage(img, 0, 0);
+
+  const pixels = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  const images = [];
+  for (let i = 0; i < pixels.length; i += 4) {
+    images.push(pixels[i] / 255);
+  }
+
+  const labelsResp = await fetch(MNIST_LABELS);
+  const labels = new Uint8Array(await labelsResp.arrayBuffer());
+
+  const xs = tf.tensor2d(images, [65000, IMAGE_SIZE])
+               .reshape([65000,28,28,1])
+               .slice([0,0,0,0],[DATASET_SIZE,28,28,1]);
+  const ys = tf.tensor2d(labels, [65000, NUM_CLASSES])
+               .slice([0,0],[DATASET_SIZE,NUM_CLASSES]);
+
+  log("MNIST data loaded successfully");
+  return { xs, ys };
+}
+
+// 🔹 Dense model
+function denseModel() {
+  const model = tf.sequential();
+  model.add(tf.layers.flatten({ inputShape: [28,28,1] }));
+  model.add(tf.layers.dense({ units: 128, activation: "relu" }));
+  model.add(tf.layers.dense({ units: 10, activation: "softmax" }));
+  model.compile({
+    optimizer: "adam",
+    loss: "categoricalCrossentropy",
+    metrics: ["accuracy"]
+  });
+  return model;
+}
+
+// 🔹 CNN model
+function cnnModel() {
+  const model = tf.sequential();
+  model.add(tf.layers.conv2d({
+    inputShape: [28,28,1],
+    filters: 8,
+    kernelSize: 3,
+    activation: "relu"
+  }));
+  model.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+  model.add(tf.layers.flatten());
+  model.add(tf.layers.dense({ units: 32, activation: "relu" }));
+  model.add(tf.layers.dense({ units: 10, activation: "softmax" }));
+  model.compile({
+    optimizer: "adam",
+    loss: "categoricalCrossentropy",
+    metrics: ["accuracy"]
+  });
+  return model;
+}
+
+// 🔹 Accuracy bar chart
+function drawChart(denseAcc, cnnAcc) {
+  const c = document.getElementById("chart");
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+
+  const vals = [denseAcc, cnnAcc];
+  const labels = ["Dense", "CNN"];
+
+  for (let i = 0; i < 2; i++) {
+    const h = vals[i] * 200;
+    ctx.fillRect(80 + i*150, 250 - h, 60, h);
+    ctx.fillText(labels[i], 90 + i*150, 270);
+    ctx.fillText((vals[i]*100).toFixed(2)+"%", 75 + i*150, 240 - h);
+  }
+}
+
+// 🔹 Main function
+async function start() {
+  console.clear();
+  console.log("MNIST Dense vs CNN Training Started");
+
+  await setupBackend();
+  const { xs, ys } = await loadMNIST();
+
+  log("<b>Training Dense Network (5 epochs)</b>");
+  const dense = denseModel();
+  await dense.fit(xs, ys, {
+    epochs: 5,
+    batchSize: 32,
+    callbacks: {
+      onEpochEnd: (e, l) => {
+        log(`Dense Epoch ${e+1}: loss=${l.loss.toFixed(4)}, acc=${(l.acc*100).toFixed(2)}%`);
+      }
+    }
+  });
+  const denseAcc = dense.evaluate(xs, ys)[1].dataSync()[0];
+  log("<b>Dense Accuracy:</b> " + (denseAcc*100).toFixed(2) + "%");
+
+  dense.dispose();
+  await tf.nextFrame();
+
+  log("<b>Training CNN (5 epochs)</b>");
+  const cnn = cnnModel();
+  await cnn.fit(xs, ys, {
+    epochs: 5,
+    batchSize: 32,
+    callbacks: {
+      onEpochEnd: (e, l) => {
+        log(`CNN Epoch ${e+1}: loss=${l.loss.toFixed(4)}, acc=${(l.acc*100).toFixed(2)}%`);
+      }
+    }
+  });
+  const cnnAcc = cnn.evaluate(xs, ys)[1].dataSync()[0];
+  log("<b>CNN Accuracy:</b> " + (cnnAcc*100).toFixed(2) + "%");
+
+  drawChart(denseAcc, cnnAcc);
+  log("<b>Comparison Completed Successfully</b>");
+}
+</script>
+
+</body>
+</html>

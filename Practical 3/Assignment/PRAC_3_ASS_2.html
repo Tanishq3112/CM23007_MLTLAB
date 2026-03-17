@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>MobileNet Accuracy Tester</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f4f6fb; padding: 2rem; display: flex; justify-content: center; }
+    #app { background: #fff; border-radius: 14px; border: 1px solid #e0e0e0; padding: 2rem; width: 100%; max-width: 700px; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #888; margin-bottom: 1.25rem; }
+    #badge { display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:20px;background:#fff8e1;color:#7a5800;margin-bottom:1.25rem; }
+    #badge.ready { background:#e6f4ea;color:#1e6b3a; }
+    .dot { width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 2s infinite; }
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+    .instruction {
+      background: #f0f7ff; border: 1px solid #cce0ff; border-radius: 10px;
+      padding: 14px 16px; font-size: 13px; color: #1a4c8b; margin-bottom: 1.25rem; line-height: 1.7;
+    }
+    .instruction b { font-weight: 700; }
+
+    #upload-area {
+      border: 2px dashed #ccc; border-radius: 10px; padding: 2rem 1rem;
+      text-align: center; cursor: pointer; background: #fafafa;
+      transition: all .2s; position: relative;
+    }
+    #upload-area:hover, #upload-area.over { background: #eef4ff; border-color: #4a90e2; }
+    #upload-area input { position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%; }
+    #upload-area p { font-size:14px;font-weight:500;color:#333; }
+    #upload-area small { font-size:12px;color:#aaa; }
+
+    #queue { margin-top: 1.25rem; display: none; }
+    .queue-heading { font-size:13px;font-weight:700;color:#888;letter-spacing:.05em;text-transform:uppercase;margin-bottom:.75rem; }
+    .queue-item {
+      display: flex; align-items: center; gap: 12px;
+      border: 1px solid #eee; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+    }
+    .thumb { width: 52px; height: 52px; border-radius: 6px; object-fit: cover; background: #eee; flex-shrink: 0; }
+    .qi-info { flex: 1; }
+    .qi-name { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 4px; }
+    .qi-label-row { display: flex; align-items: center; gap: 8px; }
+    .qi-label-input {
+      font-size: 12px; padding: 4px 8px; border: 1px solid #ddd; border-radius: 6px;
+      outline: none; width: 180px; color: #333;
+    }
+    .qi-label-hint { font-size: 11px; color: #aaa; }
+    .qi-remove { font-size: 18px; color: #ccc; cursor: pointer; background: none; border: none; padding: 0 4px; }
+    .qi-remove:hover { color: #e53935; }
+
+    #run-btn {
+      width: 100%; margin-top: 1rem; padding: 11px; font-size: 14px; font-weight: 700;
+      border: none; border-radius: 8px; background: #1a73e8; color: #fff; cursor: pointer;
+    }
+    #run-btn:hover { background: #1558b0; }
+    #run-btn:disabled { background: #b0b8c8; cursor: not-allowed; }
+
+    #summary { display: none; margin-top: 1.5rem; }
+    .metrics { display: flex; gap: 12px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .metric-card {
+      flex: 1; min-width: 120px; background: #f8faff; border: 1px solid #e0e8ff;
+      border-radius: 10px; padding: 14px 16px; text-align: center;
+    }
+    .metric-val { font-size: 28px; font-weight: 800; color: #1a73e8; }
+    .metric-lbl { font-size: 12px; color: #888; margin-top: 2px; }
+    .result-heading { font-size:13px;font-weight:700;color:#888;letter-spacing:.05em;text-transform:uppercase;margin-bottom:.75rem; }
+    .result-row {
+      display: flex; align-items: center; gap: 12px;
+      border: 1px solid #eee; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
+    }
+    .r-thumb { width: 52px; height: 52px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+    .r-body { flex: 1; }
+    .r-pred { font-size: 14px; font-weight: 600; color: #1a1a1a; margin-bottom: 3px; }
+    .r-conf { font-size: 12px; color: #888; }
+    .r-label { font-size: 12px; color: #555; margin-top: 3px; }
+    .badge-pass { background: #e6f4ea; color: #1e6b3a; font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 700; }
+    .badge-fail { background: #fce8e6; color: #b71c1c; font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 700; }
+    .badge-skip { background: #f5f5f5; color: #888; font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 700; }
+
+    #status { font-size: 13px; color: #888; text-align: center; margin-top: .75rem; min-height: 18px; }
+    .loader { display:inline-block;width:13px;height:13px;border:2px solid #ddd;border-top-color:#1a73e8;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:5px; }
+    @keyframes spin{to{transform:rotate(360deg)}}
+    progress { width: 100%; height: 8px; border-radius: 99px; margin-top: 8px; accent-color: #1a73e8; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <h1>Accuracy Tester</h1>
+  <p class="sub">Upload 5+ images, enter expected labels, and measure MobileNet accuracy</p>
+  <div id="badge"><span class="dot"></span><span id="badge-text">Loading MobileNet v2...</span></div>
+
+  <div class="instruction">
+    <b>How to use:</b> Upload 5 or more images. For each image, type what you expect the model to find
+    (e.g. <b>dog</b>, <b>cat</b>, <b>car</b>). Then click <b>Run Accuracy Test</b>.
+    A prediction is counted as correct if your label appears anywhere in the model's top-3 class names.
+  </div>
+
+  <div id="upload-area" onclick="document.getElementById('multi-input').click()">
+    <input type="file" id="multi-input" accept="image/*" multiple onchange="addFiles(event)">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5" style="display:block;margin:0 auto 10px">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drop images here or click to browse</p>
+    <small>Select 5 or more images at once (JPG, PNG, WebP)</small>
+  </div>
+
+  <div id="queue">
+    <p class="queue-heading" id="queue-label">Images (0)</p>
+    <div id="queue-list"></div>
+    <button id="run-btn" onclick="runTest()" disabled>Run Accuracy Test</button>
+  </div>
+
+  <div id="summary">
+    <div class="metrics">
+      <div class="metric-card"><div class="metric-val" id="m-acc">—</div><div class="metric-lbl">Top-3 Accuracy</div></div>
+      <div class="metric-card"><div class="metric-val" id="m-pass">—</div><div class="metric-lbl">Correct</div></div>
+      <div class="metric-card"><div class="metric-val" id="m-fail">—</div><div class="metric-lbl">Incorrect</div></div>
+      <div class="metric-card"><div class="metric-val" id="m-skip">—</div><div class="metric-lbl">Unlabelled</div></div>
+    </div>
+    <p class="result-heading">Per-Image Results</p>
+    <div id="result-list"></div>
+  </div>
+
+  <p id="status"></p>
+</div>
+
+<script>
+let model = null;
+const items = [];   // { file, dataUrl, imgEl, label }
+const statusEl = document.getElementById('status');
+const badge = document.getElementById('badge');
+const badgeText = document.getElementById('badge-text');
+const runBtn = document.getElementById('run-btn');
+
+async function loadModel() {
+  statusEl.innerHTML = '<span class="loader"></span> Loading MobileNet v2 (alpha 1.0)...';
+  try {
+    model = await mobilenet.load({ version: 2, alpha: 1.0 });
+    badgeText.textContent = 'MobileNet v2 ready';
+    badge.classList.add('ready');
+    statusEl.textContent = 'Model ready. Upload 5 or more images.';
+    checkReady();
+  } catch(e) {
+    badgeText.textContent = 'Load failed';
+    statusEl.textContent = 'Could not load model.';
+  }
+}
+
+function checkReady() {
+  runBtn.disabled = !(model && items.length >= 5);
+}
+
+function addFiles(e) {
+  const files = Array.from(e.target.files);
+  let loaded = 0;
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const imgEl = new Image();
+      imgEl.src = ev.target.result;
+      imgEl.onload = () => {
+        items.push({ file, dataUrl: ev.target.result, imgEl, label: '' });
+        loaded++;
+        if (loaded === files.length) renderQueue();
+      };
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderQueue() {
+  const list = document.getElementById('queue-list');
+  list.innerHTML = '';
+  document.getElementById('queue').style.display = 'block';
+  document.getElementById('queue-label').textContent = `Images (${items.length})`;
+
+  items.forEach((item, i) => {
+    const div = document.createElement('div');
+    div.className = 'queue-item';
+    div.innerHTML = `
+      <img class="thumb" src="${item.dataUrl}"/>
+      <div class="qi-info">
+        <div class="qi-name">${item.file.name}</div>
+        <div class="qi-label-row">
+          <input class="qi-label-input" type="text" placeholder="Expected label (e.g. dog)"
+            value="${item.label}" oninput="items[${i}].label=this.value.trim()"/>
+          <span class="qi-label-hint">optional but needed for accuracy</span>
+        </div>
+      </div>
+      <button class="qi-remove" onclick="removeItem(${i})">&#x2715;</button>`;
+    list.appendChild(div);
+  });
+
+  checkReady();
+  statusEl.textContent = items.length < 5 ? `Add ${5 - items.length} more image(s) to enable the test.` : 'Ready. Enter expected labels and run test.';
+}
+
+function removeItem(i) {
+  items.splice(i, 1);
+  renderQueue();
+}
+
+const ua = document.getElementById('upload-area');
+ua.addEventListener('dragover', e => { e.preventDefault(); ua.classList.add('over'); });
+ua.addEventListener('dragleave', () => ua.classList.remove('over'));
+ua.addEventListener('drop', e => {
+  e.preventDefault(); ua.classList.remove('over');
+  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+  if (files.length) addFiles({ target: { files } });
+});
+
+async function runTest() {
+  if (!model || items.length < 5) return;
+  runBtn.disabled = true;
+  document.getElementById('summary').style.display = 'none';
+  const resultList = document.getElementById('result-list');
+  resultList.innerHTML = '';
+
+  const results = [];
+  for (let i = 0; i < items.length; i++) {
+    statusEl.innerHTML = `<span class="loader"></span> Classifying image ${i + 1} of ${items.length}...`;
+    const item = items[i];
+    try {
+      const preds = await model.classify(item.imgEl, 3);
+      const topNames = preds.map(p => p.className.toLowerCase());
+      const conf = (preds[0].probability * 100).toFixed(1);
+      const userLabel = item.label.trim().toLowerCase();
+      let status = 'skip';
+      if (userLabel) {
+        status = topNames.some(n => n.includes(userLabel) || userLabel.split(' ').some(w => w.length > 2 && n.includes(w))) ? 'pass' : 'fail';
+      }
+      results.push({ item, preds, status, conf, topNames });
+    } catch(e) {
+      results.push({ item, preds: [], status: 'error', conf: 0, topNames: [] });
+    }
+  }
+
+  const labelled = results.filter(r => r.status !== 'skip' && r.status !== 'error');
+  const passed = results.filter(r => r.status === 'pass').length;
+  const failed = results.filter(r => r.status === 'fail').length;
+  const skipped = results.filter(r => r.status === 'skip').length;
+  const accuracy = labelled.length > 0 ? Math.round((passed / labelled.length) * 100) : 0;
+
+  document.getElementById('m-acc').textContent = labelled.length > 0 ? accuracy + '%' : 'N/A';
+  document.getElementById('m-pass').textContent = passed;
+  document.getElementById('m-fail').textContent = failed;
+  document.getElementById('m-skip').textContent = skipped;
+  document.getElementById('summary').style.display = 'block';
+
+  results.forEach(r => {
+    const predText = r.preds.length ? r.preds[0].className.split(',')[0] : 'Error';
+    const allPreds = r.preds.map((p, i) => `#${i+1} ${p.className.split(',')[0]} (${(p.probability*100).toFixed(1)}%)`).join(' · ');
+    const badgeHtml = r.status === 'pass' ? '<span class="badge-pass">CORRECT</span>'
+      : r.status === 'fail' ? '<span class="badge-fail">INCORRECT</span>'
+      : '<span class="badge-skip">NO LABEL</span>';
+    const div = document.createElement('div');
+    div.className = 'result-row';
+    div.innerHTML = `
+      <img class="r-thumb" src="${r.item.dataUrl}"/>
+      <div class="r-body">
+        <div class="r-pred">${predText}</div>
+        <div class="r-conf">${allPreds}</div>
+        ${r.item.label ? `<div class="r-label">Expected: <b>${r.item.label}</b></div>` : ''}
+      </div>
+      ${badgeHtml}`;
+    resultList.appendChild(div);
+  });
+
+  statusEl.textContent = `Done! Tested ${items.length} images.`;
+  runBtn.disabled = false;
+}
+
+loadModel();
+</script>
+</body>
+</html>

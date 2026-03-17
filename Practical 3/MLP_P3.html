@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MobileNet Image Classifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f5f5f5; display: flex; justify-content: center; padding: 2rem; min-height: 100vh; }
+    #app { background: #fff; border-radius: 12px; border: 1px solid #e0e0e0; padding: 2rem; width: 100%; max-width: 560px; height: fit-content; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #888; margin-bottom: 1.5rem; }
+
+    /* Model badge */
+    #model-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; padding: 4px 10px; border-radius: 6px;
+      background: #fff3cd; color: #856404; margin-bottom: 1.25rem;
+    }
+    #model-badge.ready { background: #d1f0e0; color: #155724; }
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: currentColor; animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* Drop zone */
+    #drop-zone {
+      border: 2px dashed #ccc; border-radius: 10px;
+      padding: 2.5rem 1rem; text-align: center;
+      cursor: pointer; transition: all 0.2s;
+      background: #fafafa; position: relative;
+    }
+    #drop-zone:hover, #drop-zone.drag-over { background: #eef4ff; border-color: #4a90e2; }
+    #drop-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0;
+      cursor: pointer; width: 100%; height: 100%;
+    }
+    #drop-zone svg { display: block; margin: 0 auto 12px; opacity: 0.4; }
+    #drop-zone p { font-size: 14px; font-weight: 500; color: #333; }
+    #drop-zone small { font-size: 12px; color: #999; margin-top: 4px; display: block; }
+
+    /* Preview */
+    #preview-section { display: none; margin-top: 1.5rem; }
+    #preview-img {
+      width: 100%; max-height: 300px; object-fit: contain;
+      border-radius: 10px; border: 1px solid #e0e0e0;
+      background: #f0f0f0; display: block;
+    }
+
+    /* Buttons */
+    #btn-classify {
+      width: 100%; margin-top: 1rem; padding: 10px;
+      font-size: 14px; font-weight: 600; border-radius: 8px;
+      border: none; background: #1a73e8; color: #fff;
+      cursor: pointer; transition: background 0.15s;
+    }
+    #btn-classify:hover { background: #1558b0; }
+    #btn-classify:disabled { background: #aaa; cursor: not-allowed; }
+    #btn-reset {
+      display: block; margin: 10px auto 0;
+      font-size: 13px; color: #888; background: none;
+      border: none; cursor: pointer; text-decoration: underline;
+    }
+
+    /* Results */
+    #results-section { display: none; margin-top: 1.5rem; }
+    .top-label { font-size: 17px; font-weight: 600; margin-bottom: 1rem; color: #1a1a1a; }
+    .top-label span { color: #1a73e8; }
+    .result-row { margin-bottom: 12px; }
+    .result-label { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .result-name { font-size: 14px; font-weight: 500; color: #222; }
+    .result-pct { font-size: 13px; color: #666; }
+    .bar-track { height: 8px; background: #eee; border-radius: 99px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 99px; width: 0; transition: width 0.6s ease; }
+    .rank-1 { background: #1a73e8; }
+    .rank-2 { background: #4a9cf0; }
+    .rank-3 { background: #85bef7; }
+
+    /* Status */
+    #status { margin-top: 1rem; font-size: 13px; color: #666; text-align: center; min-height: 20px; }
+    .loader {
+      display: inline-block; width: 13px; height: 13px;
+      border: 2px solid #ddd; border-top-color: #1a73e8;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      vertical-align: middle; margin-right: 5px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div id="app">
+  <h1>Image Classifier</h1>
+  <p class="subtitle">Powered by MobileNet v2 — runs entirely in your browser</p>
+
+  <div id="model-badge">
+    <span class="dot"></span>
+    <span id="model-status">Loading MobileNet...</span>
+  </div>
+
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <input type="file" id="file-input" accept="image/*" onchange="handleFile(event)">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
+      stroke="#999" stroke-width="1.5">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drop an image here</p>
+    <small>or click to browse — JPG, PNG, WebP</small>
+  </div>
+
+  <div id="preview-section">
+    <img id="preview-img" src="" alt="Preview"/>
+    <button id="btn-classify" onclick="classify()" disabled>Classify Image</button>
+    <button id="btn-reset" onclick="reset()">Use a different image</button>
+  </div>
+
+  <div id="results-section">
+    <p class="top-label" id="top-label"></p>
+    <div id="result-bars"></div>
+  </div>
+
+  <p id="status"></p>
+</div>
+
+<script>
+  let model = null;
+  let currentImg = null;
+
+  const statusEl = document.getElementById('status');
+  const modelStatus = document.getElementById('model-status');
+  const modelBadge = document.getElementById('model-badge');
+  const btnClassify = document.getElementById('btn-classify');
+
+  // Load MobileNet v2 (highest accuracy variant)
+  async function loadModel() {
+    try {
+      statusEl.innerHTML = '<span class="loader"></span> Loading MobileNet v2...';
+      model = await mobilenet.load({ version: 2, alpha: 1.0 });
+      modelStatus.textContent = 'MobileNet v2 ready';
+      modelBadge.classList.add('ready');
+      statusEl.textContent = 'Model loaded. Drop an image to begin.';
+      if (currentImg) btnClassify.disabled = false;
+    } catch (e) {
+      modelStatus.textContent = 'Failed to load model';
+      statusEl.textContent = 'Could not load model. Check your internet connection.';
+    }
+  }
+
+  // Handle file selection
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (ev) {
+      const img = document.getElementById('preview-img');
+      img.src = ev.target.result;
+      img.onload = function () {
+        currentImg = img;
+        document.getElementById('preview-section').style.display = 'block';
+        document.getElementById('results-section').style.display = 'none';
+        document.getElementById('result-bars').innerHTML = '';
+        document.getElementById('top-label').textContent = '';
+        if (model) btnClassify.disabled = false;
+        statusEl.textContent = model ? 'Ready to classify.' : 'Model still loading...';
+      };
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Drag-and-drop support
+  const dropZone = document.getElementById('drop-zone');
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      handleFile({ target: { files: [file] } });
+    }
+  });
+
+  // Run classification
+  async function classify() {
+    if (!model || !currentImg) return;
+    btnClassify.disabled = true;
+    statusEl.innerHTML = '<span class="loader"></span> Classifying...';
+    document.getElementById('results-section').style.display = 'none';
+
+    try {
+      const predictions = await model.classify(currentImg, 5);
+      showResults(predictions);
+      statusEl.textContent = '';
+    } catch (e) {
+      statusEl.textContent = 'Error during classification. Try another image.';
+      btnClassify.disabled = false;
+    }
+  }
+
+  // Render result bars
+  function showResults(predictions) {
+    const section = document.getElementById('results-section');
+    const barsEl = document.getElementById('result-bars');
+    const topLabel = document.getElementById('top-label');
+
+    section.style.display = 'block';
+    barsEl.innerHTML = '';
+
+    const topName = predictions[0].className.split(',')[0];
+    topLabel.innerHTML = `Best match: <span>${topName}</span>`;
+
+    const rankClasses = ['rank-1', 'rank-2', 'rank-3', 'rank-3', 'rank-3'];
+
+    predictions.forEach((p, i) => {
+      const pct = (p.probability * 100).toFixed(1);
+      const label = p.className.split(',')[0];
+      const row = document.createElement('div');
+      row.className = 'result-row';
+      row.innerHTML = `
+        <div class="result-label">
+          <span class="result-name">${label}</span>
+          <span class="result-pct">${pct}%</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill ${rankClasses[i]}" style="width:0%" data-target="${pct}"></div>
+        </div>`;
+      barsEl.appendChild(row);
+    });
+
+    // Animate bars after render
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.bar-fill').forEach(b => {
+        b.style.width = b.dataset.target + '%';
+      });
+    });
+
+    btnClassify.disabled = false;
+  }
+
+  // Reset to initial state
+  function reset() {
+    document.getElementById('preview-section').style.display = 'none';
+    document.getElementById('results-section').style.display = 'none';
+    document.getElementById('file-input').value = '';
+    currentImg = null;
+    btnClassify.disabled = true;
+    statusEl.textContent = 'Drop a new image to classify.';
+  }
+
+  loadModel();
+</script>
+</body>
+</html>

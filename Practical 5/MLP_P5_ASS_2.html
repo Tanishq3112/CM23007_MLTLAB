@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Step 2 — Label Overlay on Video Feed</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #080c10;
+    color: #cdd9e5;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    gap: 18px;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 1rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: #4ade80;
+  }
+  h1 span { color: #475569; font-size: 0.72rem; margin-left: 10px; }
+  #status { font-size: 0.82rem; color: #64748b; min-height: 18px; }
+
+  /* ── Video + Canvas stacked ─────────────────── */
+  #viewport {
+    position: relative;
+    width: 640px; max-width: 100%;
+    border: 1px solid #1a3a2a;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+  }
+  video {
+    display: block;
+    width: 100%; height: auto;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;   /* transparent to mouse events */
+  }
+
+  button {
+    padding: 9px 26px;
+    background: #166534;
+    border: none; border-radius: 4px;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 0.88rem;
+    letter-spacing: 0.1em;
+    cursor: pointer; transition: background 0.2s;
+  }
+  button:hover { background: #15803d; }
+  button:disabled { background: #1a3a2a; color: #374151; cursor: not-allowed; }
+
+  /* ── Legend ─────────────────────────────────── */
+  #legend {
+    width: 640px; max-width: 100%;
+    background: #0d1117;
+    border: 1px solid #1a3a2a;
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-size: 0.78rem;
+    color: #475569;
+    line-height: 1.7;
+  }
+  #legend b { color: #4ade80; }
+</style>
+</head>
+<body>
+
+<h1>Step 2 <span>// Canvas Label Overlay</span></h1>
+<div id="status">⏳ Loading MobileNet…</div>
+
+<div id="viewport">
+  <video id="webcam" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
+</div>
+
+<button id="startBtn" disabled>Start Camera</button>
+
+<div id="legend">
+  <b>How the overlay works:</b><br>
+  A transparent &lt;canvas&gt; sits on top of the &lt;video&gt; via CSS <code>position:absolute</code>.<br>
+  Each frame: MobileNet classifies the video → top-3 predictions are drawn onto the canvas with
+  <code>fillText</code> and coloured pill backgrounds. The canvas is <b>never</b> shown to MobileNet —
+  only the raw video element is passed to <code>model.classify()</code>.
+</div>
+
+<script>
+/* ============================================================
+   STEP 2 — Overlay Logic
+   NEW vs Step 1:
+   ✦ A <canvas> is absolutely positioned over the <video>
+   ✦ Each inference frame we call drawOverlay(predictions)
+   ✦ Labels are rendered as pill badges with probability bars
+   ✦ The canvas is cleared before each redraw (no ghosting)
+   ============================================================ */
+
+const video    = document.getElementById('webcam');
+const canvas   = document.getElementById('overlay');
+const ctx      = canvas.getContext('2d');
+const status   = document.getElementById('status');
+const startBtn = document.getElementById('startBtn');
+
+let model  = null;
+let running = false;
+
+// Colour palette for top-3 labels
+const COLORS = ['#4ade80', '#facc15', '#f87171'];
+
+// ── 1. Load Model ──────────────────────────────────────────────
+async function loadModel() {
+  model = await mobilenet.load({ version: 2, alpha: 1.0 });
+  status.textContent = '✅ Model ready — click Start Camera';
+  startBtn.disabled = false;
+}
+
+// ── 2. Sync canvas resolution to video ─────────────────────────
+function syncCanvas() {
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+}
+
+// ── 3. Start Webcam ────────────────────────────────────────────
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480 }, audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    syncCanvas();
+    video.addEventListener('resize', syncCanvas);
+
+    status.textContent = '📷 Camera active — overlay running';
+    running = true;
+    startBtn.textContent = 'Stop';
+    startBtn.onclick = stopCamera;
+    inferLoop();
+  } catch (err) {
+    status.textContent = '❌ ' + err.message;
+  }
+}
+
+function stopCamera() {
+  running = false;
+  video.srcObject?.getTracks().forEach(t => t.stop());
+  video.srcObject = null;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  status.textContent = '⛔ Stopped.';
+  startBtn.textContent = 'Start Camera';
+  startBtn.onclick = startCamera;
+}
+
+// ── 4. Inference Loop ──────────────────────────────────────────
+async function inferLoop() {
+  if (!running) return;
+  const preds = await model.classify(video, 3);
+  drawOverlay(preds);
+  requestAnimationFrame(inferLoop);
+}
+
+// ── 5. Draw Overlay ────────────────────────────────────────────
+function drawOverlay(preds) {
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // Clear previous frame
+  ctx.clearRect(0, 0, W, H);
+
+  const PILL_H     = 36;        // height of each label pill
+  const PILL_PAD_X = 14;        // horizontal padding inside pill
+  const PILL_PAD_Y = 8;         // vertical padding between pills
+  const START_X    = 16;        // left margin
+  const START_Y    = 16;        // top margin
+  const FONT_SIZE  = 14;
+  const BAR_H      = 4;         // thin probability bar below text
+
+  ctx.font = `bold ${FONT_SIZE}px "Courier New", monospace`;
+
+  preds.forEach((p, i) => {
+    const label  = p.className.split(',')[0];           // primary alias
+    const pct    = (p.probability * 100).toFixed(1) + '%';
+    const text   = `${label}  ${pct}`;
+    const tw     = ctx.measureText(text).width;
+    const pillW  = tw + PILL_PAD_X * 2;
+    const x      = START_X;
+    const y      = START_Y + i * (PILL_H + PILL_PAD_Y);
+    const color  = COLORS[i];
+
+    // ── Pill background ──
+    ctx.save();
+    roundRect(ctx, x, y, pillW, PILL_H, 6);
+    ctx.fillStyle = 'rgba(8,12,16,0.78)';
+    ctx.fill();
+
+    // ── Left accent stripe ──
+    roundRect(ctx, x, y, 4, PILL_H, [6, 0, 0, 6]);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    // ── Label text ──
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(label, x + PILL_PAD_X + 4, y + PILL_H / 2 + FONT_SIZE / 3);
+
+    // ── Probability text (right-aligned) ──
+    const pctW = ctx.measureText(pct).width;
+    ctx.fillStyle = color;
+    ctx.fillText(pct, x + pillW - pctW - PILL_PAD_X, y + PILL_H / 2 + FONT_SIZE / 3);
+
+    // ── Probability bar (below pill) ──
+    const barY = y + PILL_H + 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    roundRect(ctx, x + 4, barY, pillW - 4, BAR_H, 2);
+    ctx.fill();
+    ctx.fillStyle = color;
+    roundRect(ctx, x + 4, barY, (pillW - 4) * p.probability, BAR_H, 2);
+    ctx.fill();
+
+    ctx.restore();
+  });
+
+  // ── Corner watermark ──
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  ctx.fillText('MobileNet v2', W - 100, H - 10);
+}
+
+// ── Util: rounded rect path ────────────────────────────────────
+function roundRect(ctx, x, y, w, h, r) {
+  if (typeof r === 'number') r = [r, r, r, r];
+  const [tl, tr, br, bl] = r;
+  ctx.beginPath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + w - tr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + tr);
+  ctx.lineTo(x + w, y + h - br);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+  ctx.lineTo(x + bl, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - bl);
+  ctx.lineTo(x, y + tl);
+  ctx.quadraticCurveTo(x, y, x + tl, y);
+  ctx.closePath();
+}
+
+// ── Boot ───────────────────────────────────────────────────────
+startBtn.onclick = startCamera;
+loadModel();
+</script>
+</body>
+</html>

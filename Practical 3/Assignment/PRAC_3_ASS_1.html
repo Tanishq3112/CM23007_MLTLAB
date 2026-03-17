@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>MobileNet Top-3 Classifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f4f6fb; display: flex; justify-content: center; padding: 2rem; }
+    #app { background: #fff; border-radius: 14px; border: 1px solid #e0e0e0; padding: 2rem; width: 100%; max-width: 520px; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #888; margin-bottom: 1.25rem; }
+    #badge {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+      padding: 4px 10px; border-radius: 20px; background: #fff8e1; color: #7a5800;
+      margin-bottom: 1.25rem;
+    }
+    #badge.ready { background: #e6f4ea; color: #1e6b3a; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+    #drop-zone {
+      border: 2px dashed #ccc; border-radius: 10px; padding: 2.5rem 1rem;
+      text-align: center; cursor: pointer; background: #fafafa;
+      transition: all .2s; position: relative;
+    }
+    #drop-zone:hover, #drop-zone.over { background: #eef4ff; border-color: #4a90e2; }
+    #drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    #drop-zone p { font-size: 14px; font-weight: 500; color: #333; }
+    #drop-zone small { font-size: 12px; color: #aaa; }
+    #preview-wrap { display: none; margin-top: 1.25rem; }
+    #preview { width: 100%; max-height: 280px; object-fit: contain; border-radius: 10px; border: 1px solid #eee; background: #f0f0f0; display: block; }
+    #btn {
+      width: 100%; margin-top: 1rem; padding: 11px; font-size: 14px; font-weight: 700;
+      border: none; border-radius: 8px; background: #1a73e8; color: #fff; cursor: pointer;
+    }
+    #btn:hover { background: #1558b0; }
+    #btn:disabled { background: #b0b8c8; cursor: not-allowed; }
+    #results { display: none; margin-top: 1.5rem; }
+    .heading { font-size: 13px; font-weight: 700; color: #888; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .75rem; }
+    .card {
+      display: flex; align-items: center; gap: 14px;
+      border: 1px solid #e8eaf0; border-radius: 10px; padding: 12px 14px;
+      margin-bottom: 10px; background: #fff;
+    }
+    .rank { font-size: 22px; font-weight: 800; color: #e0e0e0; min-width: 28px; }
+    .rank.r1 { color: #f5c842; } .rank.r2 { color: #b0b8c8; } .rank.r3 { color: #c97d4e; }
+    .info { flex: 1; }
+    .name { font-size: 14px; font-weight: 600; color: #1a1a1a; margin-bottom: 5px; }
+    .bar-track { height: 7px; background: #f0f0f0; border-radius: 99px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 99px; transition: width .7s ease; }
+    .c1 { background: #1a73e8; } .c2 { background: #53a0f5; } .c3 { background: #97c8fa; }
+    .pct { font-size: 13px; font-weight: 700; color: #555; min-width: 42px; text-align: right; }
+    #status { font-size: 13px; color: #888; text-align: center; margin-top: .75rem; min-height: 18px; }
+    .loader { display:inline-block;width:13px;height:13px;border:2px solid #ddd;border-top-color:#1a73e8;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:5px; }
+    @keyframes spin{to{transform:rotate(360deg)}}
+    #reset { display: block; margin: 10px auto 0; font-size: 13px; color: #aaa; background: none; border: none; cursor: pointer; text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <h1>MobileNet Classifier</h1>
+  <p class="sub">Top-3 predictions — runs entirely in your browser</p>
+
+  <div id="badge"><span class="dot"></span><span id="badge-text">Loading MobileNet v2...</span></div>
+
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <input type="file" id="file-input" accept="image/*" onchange="handleFile(event)">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5" style="display:block;margin:0 auto 10px">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drop an image here</p>
+    <small>or click to browse — JPG, PNG, WebP</small>
+  </div>
+
+  <div id="preview-wrap">
+    <img id="preview" src="" alt="preview"/>
+    <button id="btn" onclick="classify()" disabled>Classify Image</button>
+    <button id="reset" onclick="resetApp()">Use a different image</button>
+  </div>
+
+  <div id="results">
+    <p class="heading">Top 3 Predictions</p>
+    <div id="cards"></div>
+  </div>
+
+  <p id="status"></p>
+</div>
+
+<script>
+let model = null, img = null;
+const statusEl = document.getElementById('status');
+const btn = document.getElementById('btn');
+const badge = document.getElementById('badge');
+const badgeText = document.getElementById('badge-text');
+
+async function loadModel() {
+  statusEl.innerHTML = '<span class="loader"></span> Loading MobileNet v2 (alpha 1.0)...';
+  try {
+    model = await mobilenet.load({ version: 2, alpha: 1.0 });
+    badgeText.textContent = 'MobileNet v2 ready';
+    badge.classList.add('ready');
+    statusEl.textContent = 'Model ready. Upload an image to classify.';
+    if (img) btn.disabled = false;
+  } catch(e) {
+    badgeText.textContent = 'Load failed';
+    statusEl.textContent = 'Model failed to load. Check internet connection.';
+  }
+}
+
+function handleFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const el = document.getElementById('preview');
+    el.src = ev.target.result;
+    el.onload = () => {
+      img = el;
+      document.getElementById('preview-wrap').style.display = 'block';
+      document.getElementById('results').style.display = 'none';
+      document.getElementById('cards').innerHTML = '';
+      if (model) btn.disabled = false;
+      statusEl.textContent = 'Image loaded. Click Classify.';
+    };
+  };
+  reader.readAsDataURL(file);
+}
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f?.type.startsWith('image/')) handleFile({ target: { files: [f] } });
+});
+
+async function classify() {
+  if (!model || !img) return;
+  btn.disabled = true;
+  statusEl.innerHTML = '<span class="loader"></span> Classifying...';
+  document.getElementById('results').style.display = 'none';
+  try {
+    const preds = await model.classify(img, 3);
+    renderResults(preds);
+    statusEl.textContent = '';
+  } catch(e) {
+    statusEl.textContent = 'Classification error. Try another image.';
+    btn.disabled = false;
+  }
+}
+
+function renderResults(preds) {
+  const cards = document.getElementById('cards');
+  cards.innerHTML = '';
+  document.getElementById('results').style.display = 'block';
+  const rankClass = ['r1','r2','r3'];
+  const barClass = ['c1','c2','c3'];
+  const medals = ['1','2','3'];
+  preds.forEach((p, i) => {
+    const pct = (p.probability * 100).toFixed(1);
+    const label = p.className.split(',')[0];
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `
+      <div class="rank ${rankClass[i]}">#${medals[i]}</div>
+      <div class="info">
+        <div class="name">${label}</div>
+        <div class="bar-track"><div class="bar-fill ${barClass[i]}" style="width:0" data-w="${pct}"></div></div>
+      </div>
+      <div class="pct">${pct}%</div>`;
+    cards.appendChild(div);
+  });
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.bar-fill').forEach(b => b.style.width = b.dataset.w + '%');
+  });
+  btn.disabled = false;
+}
+
+function resetApp() {
+  document.getElementById('preview-wrap').style.display = 'none';
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('file-input').value = '';
+  img = null; btn.disabled = true;
+  statusEl.textContent = 'Upload a new image to classify.';
+}
+
+loadModel();
+</script>
+</body>
+</html>

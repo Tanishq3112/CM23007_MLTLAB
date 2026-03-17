@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Step 3 — FPS + Performance Analysis</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #07090d;
+    --surface: #0d1117;
+    --border:  #1c2733;
+    --accent:  #f59e0b;
+    --green:   #4ade80;
+    --red:     #f87171;
+    --blue:    #38bdf8;
+    --text:    #cdd9e5;
+    --muted:   #4b6070;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 100vh;
+    gap: 16px;
+    padding: 24px 16px 40px;
+  }
+
+  /* ── Header ─────────────────────────────────── */
+  header {
+    width: 100%; max-width: 960px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  header h1 {
+    font-size: 0.95rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  header p { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+
+  #status { font-size: 0.8rem; color: var(--muted); }
+
+  /* ── Layout ─────────────────────────────────── */
+  .layout {
+    display: flex;
+    gap: 16px;
+    width: 100%; max-width: 960px;
+    flex-wrap: wrap;
+  }
+
+  /* ── Video pane ─────────────────────────────── */
+  #viewport {
+    position: relative;
+    flex: 0 0 480px;
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+    align-self: flex-start;
+  }
+  video { display: block; width: 100%; }
+  canvas#overlay {
+    position: absolute; top:0; left:0;
+    width:100%; height:100%;
+    pointer-events: none;
+  }
+  /* FPS badge pinned to top-right corner of video */
+  #fps-badge {
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(7,9,13,0.82);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #fps-badge .fps-val {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--green);
+    line-height: 1;
+  }
+  #fps-badge .fps-label { color: var(--muted); font-size: 0.6rem; }
+
+  /* ── Stats panel ────────────────────────────── */
+  .stats-panel {
+    flex: 1;
+    min-width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .card-title {
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  /* ── Stat rows ──────────────────────────────── */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.8rem;
+    margin-bottom: 8px;
+  }
+  .stat-row:last-child { margin-bottom: 0; }
+  .stat-key   { color: var(--muted); }
+  .stat-val   { color: var(--text); font-variant-numeric: tabular-nums; }
+  .stat-val.good { color: var(--green); }
+  .stat-val.warn { color: var(--accent); }
+  .stat-val.bad  { color: var(--red); }
+
+  /* ── Mini sparkline canvas ──────────────────── */
+  #sparkline {
+    width: 100%; height: 60px;
+    display: block;
+    border-radius: 3px;
+    background: var(--bg);
+    margin-top: 8px;
+  }
+
+  /* ── Histogram ──────────────────────────────── */
+  #histogram {
+    width: 100%; height: 70px;
+    display: block;
+    border-radius: 3px;
+    background: var(--bg);
+    margin-top: 8px;
+  }
+
+  /* ── Controls ───────────────────────────────── */
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    width: 100%; max-width: 960px;
+  }
+  button {
+    padding: 9px 22px;
+    background: #78350f;
+    border: none; border-radius: 4px;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  button:hover:not(:disabled) { background: #92400e; }
+  button:disabled { background: #1c2733; color: #374151; cursor: not-allowed; }
+  #resetBtn { background: #1c2733; color: var(--muted); }
+  #resetBtn:hover:not(:disabled) { background: #253448; color: var(--text); }
+
+  /* ── Log ────────────────────────────────────── */
+  #log {
+    width: 100%; max-width: 960px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 0.72rem;
+    color: var(--muted);
+    max-height: 120px;
+    overflow-y: auto;
+    line-height: 1.7;
+  }
+  .log-entry { border-bottom: 1px solid #111; padding: 2px 0; }
+  .log-entry .t   { color: #253448; margin-right: 8px; }
+  .log-entry .fps { color: var(--accent); }
+  .log-entry .inf { color: var(--blue);  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Step 3 <span style="color:#4b6070;font-size:0.7rem;margin-left:10px">// FPS Meter + Performance Analysis</span></h1>
+  <p>Real-time inference latency, throughput, and frame timing — MobileNet v2 on WebGL backend</p>
+</header>
+
+<div id="status">⏳ Loading MobileNet (WebGL backend)…</div>
+
+<div class="layout">
+
+  <!-- Left: Video + overlay -->
+  <div id="viewport">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="fps-badge">
+      <div class="fps-val" id="fpsDisplay">--</div>
+      <div class="fps-label">FPS</div>
+    </div>
+  </div>
+
+  <!-- Right: Stats panels -->
+  <div class="stats-panel">
+
+    <div class="card">
+      <div class="card-title">⚡ Realtime Metrics</div>
+      <div class="stat-row">
+        <span class="stat-key">Current FPS</span>
+        <span class="stat-val" id="s-fps">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-key">Inference latency</span>
+        <span class="stat-val" id="s-lat">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-key">Frame interval</span>
+        <span class="stat-val" id="s-interval">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-key">Frames processed</span>
+        <span class="stat-val" id="s-frames">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-key">TF.js backend</span>
+        <span class="stat-val good" id="s-backend">—</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Aggregate Stats (rolling 60 frames)</div>
+      <div class="stat-row">
+        <span class="stat-key">Avg FPS</span>
+        <span class="stat-val" id="s-avgfps">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-key">Min / Max FPS</span>
+        <span class="stat-val" id="s-minmax">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-key">Avg inference</span>
+        <span class="stat-val" id="s-avglat">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-key">P95 latency</span>
+        <span class="stat-val" id="s-p95">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-key">Throughput</span>
+        <span class="stat-val" id="s-throughput">—</span>
+      </div>
+      <!-- FPS sparkline -->
+      <div class="card-title" style="margin-top:12px">FPS over time</div>
+      <canvas id="sparkline"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📉 Latency Distribution</div>
+      <canvas id="histogram"></canvas>
+    </div>
+
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="controls">
+  <button id="startBtn" disabled>Start Camera</button>
+  <button id="resetBtn" disabled>Reset Stats</button>
+</div>
+
+<!-- Performance log -->
+<div id="log"><em>Performance log will appear here…</em></div>
+
+
+<script>
+/* ============================================================
+   STEP 3 — FPS Measurement + Performance Analysis
+   NEW vs Step 2:
+   ✦ High-resolution timestamps via performance.now()
+   ✦ Rolling window (60 frames) for FPS, latency history
+   ✦ Computed: avg, min, max, p95 latency, throughput
+   ✦ FPS sparkline drawn on canvas
+   ✦ Latency histogram (bucket distribution)
+   ✦ Per-entry performance log with timestamps
+   ✦ TF.js backend detection (WebGL > WASM > CPU)
+   ============================================================ */
+
+// ── DOM refs ───────────────────────────────────────────────────
+const video      = document.getElementById('webcam');
+const overlay    = document.getElementById('overlay');
+const ctx        = overlay.getContext('2d');
+const sparkCv    = document.getElementById('sparkline');
+const histCv     = document.getElementById('histogram');
+const sCtx       = sparkCv.getContext('2d');
+const hCtx       = histCv.getContext('2d');
+const fpsDisplay = document.getElementById('fpsDisplay');
+const status     = document.getElementById('status');
+const startBtn   = document.getElementById('startBtn');
+const resetBtn   = document.getElementById('resetBtn');
+const logDiv     = document.getElementById('log');
+
+// ── State ──────────────────────────────────────────────────────
+let model   = null;
+let running = false;
+
+// Performance history (rolling 60 samples)
+const WINDOW = 60;
+let fpsHistory = [];     // instantaneous FPS per frame
+let latHistory = [];     // inference latency ms per frame
+let frameCount = 0;
+let lastFrameTime = 0;   // performance.now() of previous frame
+let sessionStart  = 0;
+
+const COLORS = ['#4ade80', '#facc15', '#f87171'];
+
+// ── 1. Load Model ──────────────────────────────────────────────
+async function loadModel() {
+  // Force WebGL backend for GPU acceleration
+  await tf.setBackend('webgl');
+  await tf.ready();
+
+  model = await mobilenet.load({ version: 2, alpha: 1.0 });
+
+  const backend = tf.getBackend();
+  document.getElementById('s-backend').textContent = backend.toUpperCase();
+  status.textContent = `✅ Model ready [${backend}] — click Start Camera`;
+  startBtn.disabled = false;
+}
+
+// ── 2. Canvas sync ─────────────────────────────────────────────
+function syncCanvas() {
+  overlay.width  = video.videoWidth  || 480;
+  overlay.height = video.videoHeight || 360;
+}
+
+// ── 3. Camera ──────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480 }, audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    syncCanvas();
+    video.addEventListener('resize', syncCanvas);
+
+    status.textContent = '📷 Running — measuring performance…';
+    running = true;
+    sessionStart = performance.now();
+    lastFrameTime = performance.now();
+
+    startBtn.textContent = 'Stop';
+    startBtn.onclick = stopCamera;
+    resetBtn.disabled = false;
+
+    logDiv.innerHTML = ''; // clear log
+    inferLoop();
+  } catch (err) {
+    status.textContent = '❌ ' + err.message;
+  }
+}
+
+function stopCamera() {
+  running = false;
+  video.srcObject?.getTracks().forEach(t => t.stop());
+  video.srcObject = null;
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  status.textContent = '⛔ Stopped.';
+  startBtn.textContent = 'Start Camera';
+  startBtn.onclick = startCamera;
+  resetBtn.disabled = true;
+}
+
+// ── 4. Inference loop — core performance measurement ───────────
+async function inferLoop() {
+  if (!running) return;
+
+  const frameStart = performance.now();
+
+  // ── Measure inference time exclusively ──
+  const inferStart = performance.now();
+  const preds = await model.classify(video, 3);
+  const inferEnd   = performance.now();
+  const inferMs    = inferEnd - inferStart;
+
+  // ── Frame interval (time since last frame) ──
+  const frameInterval = frameStart - lastFrameTime;
+  lastFrameTime = frameStart;
+
+  // ── Instantaneous FPS (from frame interval) ──
+  const fps = frameInterval > 0 ? 1000 / frameInterval : 0;
+
+  // ── Record into rolling window ──
+  frameCount++;
+  fpsHistory.push(fps);
+  latHistory.push(inferMs);
+  if (fpsHistory.length > WINDOW) fpsHistory.shift();
+  if (latHistory.length > WINDOW) latHistory.shift();
+
+  // ── Draw overlay ──
+  drawOverlay(preds, fps);
+
+  // ── Update stats UI (every frame) ──
+  updateStats(fps, inferMs, frameInterval);
+
+  // ── Draw charts ──
+  drawSparkline();
+  drawHistogram();
+
+  // ── Log every 30 frames ──
+  if (frameCount % 30 === 0) addLogEntry(fps, inferMs);
+
+  requestAnimationFrame(inferLoop);
+}
+
+// ── 5. Stats UI ────────────────────────────────────────────────
+function updateStats(fps, inferMs, frameInterval) {
+  // Realtime
+  el('s-fps',      colorVal(fps.toFixed(1) + ' fps', fps, 20, 10));
+  el('s-lat',      colorVal(inferMs.toFixed(1) + ' ms', inferMs, 80, 150, true));
+  el('s-interval', (frameInterval).toFixed(1) + ' ms');
+  el('s-frames',   frameCount);
+
+  fpsDisplay.textContent = fps.toFixed(0);
+  fpsDisplay.style.color = fps >= 20 ? '#4ade80' : fps >= 10 ? '#f59e0b' : '#f87171';
+
+  // Aggregate (rolling window)
+  if (fpsHistory.length < 2) return;
+
+  const avgFps  = mean(fpsHistory);
+  const minFps  = Math.min(...fpsHistory);
+  const maxFps  = Math.max(...fpsHistory);
+  const avgLat  = mean(latHistory);
+  const p95Lat  = percentile(latHistory, 95);
+  const elapsed = (performance.now() - sessionStart) / 1000;
+  const throughput = frameCount / elapsed;
+
+  el('s-avgfps',    avgFps.toFixed(1) + ' fps');
+  el('s-minmax',    minFps.toFixed(0) + ' / ' + maxFps.toFixed(0) + ' fps');
+  el('s-avglat',    avgLat.toFixed(1) + ' ms');
+  el('s-p95',       p95Lat.toFixed(1) + ' ms');
+  el('s-throughput',throughput.toFixed(2) + ' inf/s');
+}
+
+function el(id, valOrHtml) {
+  const node = document.getElementById(id);
+  if (!node) return;
+  if (typeof valOrHtml === 'string' && valOrHtml.includes('<')) {
+    node.innerHTML = valOrHtml;
+  } else {
+    node.textContent = valOrHtml;
+  }
+}
+
+// Returns coloured span HTML based on thresholds
+// higherIsBetter: green for high values; set false for latency (low=good)
+function colorVal(text, val, goodThresh, warnThresh, higherIsBetter = true) {
+  let cls;
+  if (higherIsBetter) {
+    cls = val >= goodThresh ? 'good' : val >= warnThresh ? 'warn' : 'bad';
+  } else {
+    cls = val <= goodThresh ? 'good' : val <= warnThresh ? 'warn' : 'bad';
+  }
+  return `<span class="stat-val ${cls}">${text}</span>`;
+}
+
+// ── 6. Overlay (reuse Step 2 approach) ────────────────────────
+function drawOverlay(preds, fps) {
+  const W = overlay.width, H = overlay.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const PILL_H = 34, PAD_X = 12, PAD_Y = 7;
+  const FS = 13;
+  ctx.font = `bold ${FS}px "Courier New", monospace`;
+
+  preds.forEach((p, i) => {
+    const label = p.className.split(',')[0];
+    const pct   = (p.probability * 100).toFixed(1) + '%';
+    const tw    = ctx.measureText(label + '  ' + pct).width;
+    const pillW = tw + PAD_X * 2;
+    const x = 12, y = 12 + i * (PILL_H + PAD_Y);
+    const color = COLORS[i];
+
+    ctx.save();
+    // Background
+    roundRect(ctx, x, y, pillW, PILL_H, 5);
+    ctx.fillStyle = 'rgba(7,9,13,0.80)'; ctx.fill();
+    // Accent bar
+    roundRect(ctx, x, y, 3, PILL_H, [5,0,0,5]);
+    ctx.fillStyle = color; ctx.fill();
+    // Text
+    ctx.fillStyle = '#cdd9e5';
+    ctx.fillText(label, x + PAD_X + 4, y + PILL_H/2 + FS/3);
+    const pctW = ctx.measureText(pct).width;
+    ctx.fillStyle = color;
+    ctx.fillText(pct, x + pillW - pctW - PAD_X, y + PILL_H/2 + FS/3);
+    ctx.restore();
+  });
+}
+
+// ── 7. Sparkline (FPS over time) ──────────────────────────────
+function drawSparkline() {
+  const cw = sparkCv.width  = sparkCv.offsetWidth  * devicePixelRatio | 0;
+  const ch = sparkCv.height = sparkCv.offsetHeight * devicePixelRatio | 0;
+
+  sCtx.clearRect(0, 0, cw, ch);
+  if (fpsHistory.length < 2) return;
+
+  const maxF  = Math.max(30, Math.max(...fpsHistory));
+  const pts   = fpsHistory;
+  const stepX = cw / (WINDOW - 1);
+
+  // Grid line at 20 fps
+  const gridY = ch - (20 / maxF) * ch;
+  sCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+  sCtx.lineWidth = 1;
+  sCtx.beginPath(); sCtx.moveTo(0, gridY); sCtx.lineTo(cw, gridY); sCtx.stroke();
+
+  // Fill under curve
+  const grad = sCtx.createLinearGradient(0, 0, 0, ch);
+  grad.addColorStop(0,   'rgba(245,158,11,0.25)');
+  grad.addColorStop(1,   'rgba(245,158,11,0)');
+
+  sCtx.beginPath();
+  pts.forEach((v, i) => {
+    const x = i * stepX;
+    const y = ch - (v / maxF) * ch;
+    i === 0 ? sCtx.moveTo(x, y) : sCtx.lineTo(x, y);
+  });
+  // Close fill
+  sCtx.lineTo((pts.length - 1) * stepX, ch);
+  sCtx.lineTo(0, ch);
+  sCtx.closePath();
+  sCtx.fillStyle = grad; sCtx.fill();
+
+  // Stroke line
+  sCtx.beginPath();
+  pts.forEach((v, i) => {
+    const x = i * stepX;
+    const y = ch - (v / maxF) * ch;
+    i === 0 ? sCtx.moveTo(x, y) : sCtx.lineTo(x, y);
+  });
+  sCtx.strokeStyle = '#f59e0b';
+  sCtx.lineWidth = 1.5 * devicePixelRatio;
+  sCtx.stroke();
+
+  // Label
+  sCtx.fillStyle = 'rgba(245,158,11,0.6)';
+  sCtx.font = `${10 * devicePixelRatio}px "Courier New"`;
+  sCtx.fillText('30 FPS ideal', 4, 4 * devicePixelRatio + 2);
+}
+
+// ── 8. Histogram (latency buckets) ────────────────────────────
+function drawHistogram() {
+  const cw = histCv.width  = histCv.offsetWidth  * devicePixelRatio | 0;
+  const ch = histCv.height = histCv.offsetHeight * devicePixelRatio | 0;
+  hCtx.clearRect(0, 0, cw, ch);
+  if (latHistory.length < 4) return;
+
+  // Buckets: <20ms, 20-40, 40-60, 60-80, 80-100, >100
+  const bucketLabels = ['<20', '20-40', '40-60', '60-80', '80-100', '>100'];
+  const buckets = [0, 0, 0, 0, 0, 0];
+  latHistory.forEach(v => {
+    if      (v < 20)  buckets[0]++;
+    else if (v < 40)  buckets[1]++;
+    else if (v < 60)  buckets[2]++;
+    else if (v < 80)  buckets[3]++;
+    else if (v < 100) buckets[4]++;
+    else              buckets[5]++;
+  });
+
+  const maxB  = Math.max(1, Math.max(...buckets));
+  const n     = buckets.length;
+  const bw    = cw / n;
+  const PAD   = 4 * devicePixelRatio;
+  const bucketColors = ['#4ade80','#a3e635','#facc15','#fb923c','#f87171','#ef4444'];
+
+  buckets.forEach((count, i) => {
+    const barH = ((count / maxB) * (ch - 16 * devicePixelRatio));
+    const x = i * bw + PAD;
+    const w = bw - PAD * 2;
+    const y = ch - barH - 14 * devicePixelRatio;
+
+    hCtx.fillStyle = bucketColors[i];
+    hCtx.globalAlpha = 0.8;
+    hCtx.fillRect(x, y, w, barH);
+    hCtx.globalAlpha = 1;
+
+    // Label
+    hCtx.fillStyle = 'rgba(205,217,229,0.6)';
+    hCtx.font = `${8 * devicePixelRatio}px "Courier New"`;
+    hCtx.textAlign = 'center';
+    hCtx.fillText(bucketLabels[i], x + w / 2, ch - 2 * devicePixelRatio);
+    if (count > 0) {
+      hCtx.fillStyle = '#fff';
+      hCtx.fillText(count, x + w / 2, y - 2 * devicePixelRatio);
+    }
+    hCtx.textAlign = 'left';
+  });
+
+  // X-axis label
+  hCtx.fillStyle = 'rgba(75,96,112,0.7)';
+  hCtx.font = `${8 * devicePixelRatio}px "Courier New"`;
+  hCtx.fillText('Inference latency (ms)', 2, 9 * devicePixelRatio);
+}
+
+// ── 9. Performance log ─────────────────────────────────────────
+function addLogEntry(fps, inferMs) {
+  const elapsed = ((performance.now() - sessionStart) / 1000).toFixed(1);
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML =
+    `<span class="t">[${elapsed}s]</span>` +
+    `<span class="fps">FPS ${fps.toFixed(1)}</span> · ` +
+    `<span class="inf">inf ${inferMs.toFixed(1)}ms</span> · ` +
+    `frames ${frameCount}`;
+  logDiv.prepend(entry);
+  // Keep log short
+  while (logDiv.children.length > 20) logDiv.removeChild(logDiv.lastChild);
+}
+
+// ── Utilities ──────────────────────────────────────────────────
+function mean(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+function percentile(arr, p) {
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, idx)];
+}
+function roundRect(ctx, x, y, w, h, r) {
+  if (typeof r === 'number') r = [r, r, r, r];
+  const [tl, tr, br, bl] = r;
+  ctx.beginPath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + w - tr, y);  ctx.quadraticCurveTo(x + w, y, x + w, y + tr);
+  ctx.lineTo(x + w, y + h - br); ctx.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+  ctx.lineTo(x + bl, y + h);  ctx.quadraticCurveTo(x, y + h, x, y + h - bl);
+  ctx.lineTo(x, y + tl);      ctx.quadraticCurveTo(x, y, x + tl, y);
+  ctx.closePath();
+}
+
+// ── Reset ──────────────────────────────────────────────────────
+resetBtn.onclick = () => {
+  fpsHistory = []; latHistory = [];
+  frameCount  = 0;
+  sessionStart = performance.now();
+  logDiv.innerHTML = '<em>Stats reset.</em>';
+};
+
+// ── Boot ───────────────────────────────────────────────────────
+startBtn.onclick = startCamera;
+loadModel();
+</script>
+</body>
+</html>

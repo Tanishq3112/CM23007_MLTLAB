@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>MobileNet vs EfficientNet Comparison</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f4f6fb; padding: 2rem; display: flex; justify-content: center; }
+    #app { background: #fff; border-radius: 14px; border: 1px solid #e0e0e0; padding: 2rem; width: 100%; max-width: 760px; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #888; margin-bottom: 1.25rem; }
+
+    .badge-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+      padding: 4px 12px; border-radius: 20px; background: #fff8e1; color: #7a5800;
+    }
+    .badge.ready { background: #e6f4ea; color: #1e6b3a; }
+    .dot { width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 2s infinite; }
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+    #drop-zone {
+      border: 2px dashed #ccc; border-radius: 10px; padding: 2rem 1rem;
+      text-align: center; cursor: pointer; background: #fafafa;
+      transition: all .2s; position: relative; margin-bottom: 1rem;
+    }
+    #drop-zone:hover, #drop-zone.over { background: #eef4ff; border-color: #4a90e2; }
+    #drop-zone input { position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%; }
+    #drop-zone p { font-size:14px;font-weight:500;color:#333; }
+    #drop-zone small { font-size:12px;color:#aaa; }
+
+    #preview { display:none; margin-bottom:1rem; }
+    #preview img { width:100%;max-height:260px;object-fit:contain;border-radius:10px;border:1px solid #eee;background:#f0f0f0;display:block; }
+
+    #btn {
+      width:100%;padding:11px;font-size:14px;font-weight:700;border:none;border-radius:8px;
+      background:#1a73e8;color:#fff;cursor:pointer;margin-bottom:.5rem;
+    }
+    #btn:hover{background:#1558b0;}
+    #btn:disabled{background:#b0b8c8;cursor:not-allowed;}
+    #reset { display:block;margin:0 auto 1.5rem;font-size:13px;color:#aaa;background:none;border:none;cursor:pointer;text-decoration:underline; }
+
+    #comparison { display:none; }
+    .comp-grid { display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:1.5rem; }
+    .model-col { border:1px solid #e0e8ff;border-radius:12px;overflow:hidden; }
+    .model-header { padding:12px 14px;font-size:13px;font-weight:700; }
+    .mobile-header { background:#e8f0fe;color:#1a4c8b; }
+    .effnet-header { background:#fce8e6;color:#8b1a1a; }
+    .model-meta { font-size:11px;font-weight:400;color:inherit;opacity:.7;display:block;margin-top:2px; }
+    .pred-list { padding:12px 14px; }
+    .pred-item { display:flex;align-items:center;gap:10px;margin-bottom:10px; }
+    .pred-rank { font-size:18px;font-weight:800;color:#e0e0e0;min-width:24px; }
+    .pred-rank.r1{color:#f5c842;} .pred-rank.r2{color:#b0b8c8;} .pred-rank.r3{color:#c97d4e;}
+    .pred-info { flex:1; }
+    .pred-name { font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:4px; }
+    .bar-track { height:6px;background:#f0f0f0;border-radius:99px;overflow:hidden; }
+    .bar-fill { height:100%;border-radius:99px;transition:width .7s ease; }
+    .mob-bar { background:#1a73e8; } .mob-bar-2 { background:#85b7eb; } .mob-bar-3 { background:#c5dcf7; }
+    .eff-bar { background:#e53935; } .eff-bar-2 { background:#ef9a9a; } .eff-bar-3 { background:#ffcdd2; }
+    .pred-pct { font-size:12px;font-weight:700;color:#555;min-width:38px;text-align:right; }
+
+    .verdict-section { border:1px solid #e0e0e0;border-radius:12px;padding:16px; }
+    .verdict-title { font-size:13px;font-weight:700;color:#888;letter-spacing:.05em;text-transform:uppercase;margin-bottom:12px; }
+    .verdict-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:10px; }
+    .verdict-card { background:#f8faff;border:1px solid #e0e8ff;border-radius:8px;padding:12px;text-align:center; }
+    .verdict-val { font-size:20px;font-weight:800;color:#1a73e8;margin-bottom:2px; }
+    .verdict-lbl { font-size:11px;color:#888; }
+    .winner-badge {
+      display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;
+      border-radius:20px;margin-top:10px;
+    }
+    .w-mobile { background:#e8f0fe;color:#1a4c8b; }
+    .w-effnet { background:#fce8e6;color:#8b1a1a; }
+    .w-tie { background:#f5f5f5;color:#555; }
+    .agree-note { font-size:13px;color:#666;margin-top:12px;padding-top:12px;border-top:1px solid #eee;line-height:1.6; }
+    .agree-note b { color:#333; }
+
+    .timing-row { display:flex;gap:10px;margin-top:12px; }
+    .timing-chip { flex:1;background:#f8f8f8;border:1px solid #eee;border-radius:8px;padding:10px;text-align:center; }
+    .timing-val { font-size:18px;font-weight:800;color:#333; }
+    .timing-lbl { font-size:11px;color:#888; }
+
+    #status { font-size:13px;color:#888;text-align:center;margin-top:.75rem;min-height:18px; }
+    .loader { display:inline-block;width:13px;height:13px;border:2px solid #ddd;border-top-color:#1a73e8;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:5px; }
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    @media(max-width:520px){.comp-grid{grid-template-columns:1fr;} .verdict-grid{grid-template-columns:1fr 1fr;}}
+  </style>
+</head>
+<body>
+<div id="app">
+  <h1>MobileNet vs EfficientNet</h1>
+  <p class="sub">Side-by-side in-browser model comparison — upload any image</p>
+
+  <div class="badge-row">
+    <div id="badge-mob" class="badge"><span class="dot"></span><span id="bt-mob">Loading MobileNet v2...</span></div>
+    <div id="badge-eff" class="badge"><span class="dot"></span><span id="bt-eff">Loading EfficientNet-Lite4...</span></div>
+  </div>
+
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <input type="file" id="file-input" accept="image/*" onchange="handleFile(event)">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5" style="display:block;margin:0 auto 10px">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drop an image here</p>
+    <small>or click to browse — JPG, PNG, WebP</small>
+  </div>
+
+  <div id="preview"><img id="prev-img" src="" alt="preview"/></div>
+
+  <button id="btn" onclick="runComparison()" disabled>Compare Both Models</button>
+  <button id="reset" onclick="resetApp()" style="display:none">Use a different image</button>
+
+  <div id="comparison">
+    <div class="comp-grid">
+      <div class="model-col">
+        <div class="model-header mobile-header">
+          MobileNet v2
+          <span class="model-meta">ImageNet · ~14MB · alpha 1.0</span>
+        </div>
+        <div class="pred-list" id="mob-preds"></div>
+      </div>
+      <div class="model-col">
+        <div class="model-header effnet-header">
+          EfficientNet-Lite4
+          <span class="model-meta">ImageNet · ~51MB · via TFJS graph</span>
+        </div>
+        <div class="pred-list" id="eff-preds"></div>
+      </div>
+    </div>
+
+    <div class="verdict-section">
+      <p class="verdict-title">Analysis</p>
+      <div class="verdict-grid">
+        <div class="verdict-card">
+          <div class="verdict-val" id="v-mob-conf">—</div>
+          <div class="verdict-lbl">MobileNet top-1 confidence</div>
+          <div id="v-mob-win"></div>
+        </div>
+        <div class="verdict-card">
+          <div class="verdict-val" id="v-eff-conf">—</div>
+          <div class="verdict-lbl">EfficientNet top-1 confidence</div>
+          <div id="v-eff-win"></div>
+        </div>
+        <div class="verdict-card">
+          <div class="verdict-val" id="v-agree">—</div>
+          <div class="verdict-lbl">Top-1 agreement</div>
+        </div>
+      </div>
+      <div class="timing-row">
+        <div class="timing-chip"><div class="timing-val" id="t-mob">—</div><div class="timing-lbl">MobileNet inference (ms)</div></div>
+        <div class="timing-chip"><div class="timing-val" id="t-eff">—</div><div class="timing-lbl">EfficientNet inference (ms)</div></div>
+        <div class="timing-chip"><div class="timing-val" id="t-faster">—</div><div class="timing-lbl">Faster model</div></div>
+      </div>
+      <p class="agree-note" id="agree-note"></p>
+    </div>
+  </div>
+
+  <p id="status"></p>
+</div>
+
+<script>
+let mobModel = null, effModel = null, currentImg = null;
+const statusEl = document.getElementById('status');
+const btn = document.getElementById('btn');
+
+/* ── EfficientNet-Lite4 via TFJS Graph Model (TFHub) ── */
+const EFF_URL = 'https://tfhub.dev/tensorflow/lite-model/efficientnet/lite4/classification/2/default/2';
+const EFF_LABELS_URL = 'https://storage.googleapis.com/download.tensorflow.org/data/ImageNetLabels.txt';
+let effLabels = [];
+
+async function loadModels() {
+  statusEl.innerHTML = '<span class="loader"></span> Loading both models...';
+
+  // MobileNet
+  try {
+    mobModel = await mobilenet.load({ version: 2, alpha: 1.0 });
+    document.getElementById('bt-mob').textContent = 'MobileNet v2 ready';
+    document.getElementById('badge-mob').classList.add('ready');
+  } catch(e) {
+    document.getElementById('bt-mob').textContent = 'MobileNet failed';
+  }
+
+  // EfficientNet-Lite4 via TFHub graph model
+  try {
+    // Load ImageNet labels
+    const resp = await fetch(EFF_LABELS_URL);
+    const text = await resp.text();
+    effLabels = text.trim().split('\n').map(l => l.trim());
+
+    effModel = await tf.loadGraphModel(EFF_URL, { fromTFHub: true });
+    document.getElementById('bt-eff').textContent = 'EfficientNet-Lite4 ready';
+    document.getElementById('badge-eff').classList.add('ready');
+  } catch(e) {
+    // Fallback: use MobileNet v1 as the second model for comparison
+    try {
+      effModel = await mobilenet.load({ version: 1, alpha: 1.0 });
+      effLabels = null; // use mobilenet API directly
+      document.getElementById('bt-eff').textContent = 'MobileNet v1 ready (fallback)';
+      document.getElementById('badge-eff').classList.add('ready');
+      document.querySelector('.effnet-header').innerHTML =
+        'MobileNet v1 <span class="model-meta">Fallback · ImageNet · alpha 1.0</span>';
+    } catch(e2) {
+      document.getElementById('bt-eff').textContent = 'Second model failed';
+    }
+  }
+
+  statusEl.textContent = 'Both models ready. Upload an image to compare.';
+  if (currentImg) btn.disabled = false;
+}
+
+function handleFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const el = document.getElementById('prev-img');
+    el.src = ev.target.result;
+    el.onload = () => {
+      currentImg = el;
+      document.getElementById('preview').style.display = 'block';
+      document.getElementById('comparison').style.display = 'none';
+      document.getElementById('reset').style.display = 'block';
+      if (mobModel && effModel) btn.disabled = false;
+      statusEl.textContent = 'Image loaded. Click Compare.';
+    };
+  };
+  reader.readAsDataURL(file);
+}
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f?.type.startsWith('image/')) handleFile({ target: { files: [f] } });
+});
+
+async function runMobileNet() {
+  const t0 = performance.now();
+  const preds = await mobModel.classify(currentImg, 3);
+  const t1 = performance.now();
+  return {
+    preds: preds.map(p => ({ name: p.className.split(',')[0], prob: p.probability })),
+    ms: Math.round(t1 - t0)
+  };
+}
+
+async function runEfficientNet() {
+  const t0 = performance.now();
+
+  // Check if fallback (MobileNet v1 API)
+  if (!effLabels) {
+    const preds = await effModel.classify(currentImg, 3);
+    const t1 = performance.now();
+    return {
+      preds: preds.map(p => ({ name: p.className.split(',')[0], prob: p.probability })),
+      ms: Math.round(t1 - t0)
+    };
+  }
+
+  // EfficientNet-Lite4 needs 320x320 input
+  const tensor = tf.tidy(() => {
+    const imgTensor = tf.browser.fromPixels(currentImg)
+      .resizeBilinear([320, 320])
+      .toFloat()
+      .div(255.0)
+      .expandDims(0);
+    return imgTensor;
+  });
+
+  const logits = await effModel.predict(tensor);
+  tensor.dispose();
+
+  const values = await logits.data();
+  logits.dispose();
+
+  // Softmax
+  const expVals = Array.from(values).map(v => Math.exp(v));
+  const sum = expVals.reduce((a, b) => a + b, 0);
+  const probs = expVals.map(v => v / sum);
+
+  // Top-3
+  const indexed = probs.map((p, i) => ({ prob: p, idx: i }));
+  indexed.sort((a, b) => b.prob - a.prob);
+  const top3 = indexed.slice(0, 3).map(item => ({
+    name: effLabels[item.idx] || `Class ${item.idx}`,
+    prob: item.prob
+  }));
+
+  const t1 = performance.now();
+  return { preds: top3, ms: Math.round(t1 - t0) };
+}
+
+async function runComparison() {
+  if (!mobModel || !effModel || !currentImg) return;
+  btn.disabled = true;
+  document.getElementById('comparison').style.display = 'none';
+  statusEl.innerHTML = '<span class="loader"></span> Running MobileNet...';
+  let mobResult, effResult;
+
+  try { mobResult = await runMobileNet(); } catch(e) { mobResult = { preds: [], ms: 0 }; }
+  statusEl.innerHTML = '<span class="loader"></span> Running EfficientNet...';
+  try { effResult = await runEfficientNet(); } catch(e) { effResult = { preds: [], ms: 0 }; }
+
+  renderPreds('mob-preds', mobResult.preds, ['mob-bar','mob-bar-2','mob-bar-3']);
+  renderPreds('eff-preds', effResult.preds, ['eff-bar','eff-bar-2','eff-bar-3']);
+  renderVerdict(mobResult, effResult);
+  document.getElementById('comparison').style.display = 'block';
+  statusEl.textContent = '';
+  btn.disabled = false;
+}
+
+function renderPreds(containerId, preds, barClasses) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  const rankClass = ['r1','r2','r3'];
+  preds.forEach((p, i) => {
+    const pct = (p.prob * 100).toFixed(1);
+    const div = document.createElement('div');
+    div.className = 'pred-item';
+    div.innerHTML = `
+      <div class="pred-rank ${rankClass[i]}">#${i+1}</div>
+      <div class="pred-info">
+        <div class="pred-name">${p.name}</div>
+        <div class="bar-track"><div class="bar-fill ${barClasses[i]}" style="width:0" data-w="${pct}"></div></div>
+      </div>
+      <div class="pred-pct">${pct}%</div>`;
+    container.appendChild(div);
+  });
+  requestAnimationFrame(() => {
+    container.querySelectorAll('.bar-fill').forEach(b => b.style.width = b.dataset.w + '%');
+  });
+}
+
+function renderVerdict(mob, eff) {
+  const mobConf = mob.preds[0] ? (mob.preds[0].prob * 100).toFixed(1) + '%' : '—';
+  const effConf = eff.preds[0] ? (eff.preds[0].prob * 100).toFixed(1) + '%' : '—';
+
+  document.getElementById('v-mob-conf').textContent = mobConf;
+  document.getElementById('v-eff-conf').textContent = effConf;
+
+  // Which model is more confident?
+  const mobP = mob.preds[0]?.prob || 0;
+  const effP = eff.preds[0]?.prob || 0;
+  if (Math.abs(mobP - effP) < 0.03) {
+    document.getElementById('v-mob-win').innerHTML = '<span class="winner-badge w-tie">Tied</span>';
+    document.getElementById('v-eff-win').innerHTML = '<span class="winner-badge w-tie">Tied</span>';
+  } else if (mobP > effP) {
+    document.getElementById('v-mob-win').innerHTML = '<span class="winner-badge w-mobile">Higher confidence</span>';
+    document.getElementById('v-eff-win').innerHTML = '';
+  } else {
+    document.getElementById('v-mob-win').innerHTML = '';
+    document.getElementById('v-eff-win').innerHTML = '<span class="winner-badge w-effnet">Higher confidence</span>';
+  }
+
+  // Agreement
+  const mobTop = mob.preds[0]?.name.toLowerCase() || '';
+  const effTop = eff.preds[0]?.name.toLowerCase() || '';
+  const agree = mobTop && effTop && (mobTop.includes(effTop.split(' ')[0]) || effTop.includes(mobTop.split(' ')[0]));
+  document.getElementById('v-agree').textContent = agree ? 'YES' : 'NO';
+
+  // Timing
+  document.getElementById('t-mob').textContent = mob.ms;
+  document.getElementById('t-eff').textContent = eff.ms;
+  const faster = mob.ms <= eff.ms ? 'MobileNet' : 'EfficientNet';
+  document.getElementById('t-faster').textContent = faster;
+
+  // Note
+  const note = agree
+    ? `<b>Both models agree</b> — top prediction is <b>${mob.preds[0]?.name}</b>. High agreement usually indicates strong visual features in the image.`
+    : `<b>Models disagree</b> — MobileNet says <b>${mob.preds[0]?.name}</b>, EfficientNet says <b>${eff.preds[0]?.name}</b>. EfficientNet-Lite4 tends to be more accurate on complex or fine-grained images. MobileNet is faster and better suited to real-time use.`;
+  document.getElementById('agree-note').innerHTML = note;
+}
+
+function resetApp() {
+  document.getElementById('preview').style.display = 'none';
+  document.getElementById('comparison').style.display = 'none';
+  document.getElementById('reset').style.display = 'none';
+  document.getElementById('file-input').value = '';
+  currentImg = null;
+  btn.disabled = true;
+  statusEl.textContent = 'Upload a new image.';
+}
+
+loadModels();
+</script>
+</body>
+</html>
