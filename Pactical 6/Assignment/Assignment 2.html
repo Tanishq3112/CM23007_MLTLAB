@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Trainer - Debug Mode</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; }
+        .container { position: relative; display: inline-block; }
+        video, canvas { transform: scaleX(-1); border-radius: 10px; }
+        .stats { font-size: 1.5rem; color: #00ffcc; margin: 10px; }
+        .counter { font-size: 3rem; color: #ff00ff; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h2>AI Trainer (Debug Mode)</h2>
+    <div class="stats">
+        Squats: <span id="s-count" class="counter">0</span> | 
+        Hands: <span id="h-count" class="counter">0</span>
+    </div>
+    <div id="debug-log" style="color: yellow;">Move back so your full body is visible</div>
+
+    <div class="container">
+        <video id="video" width="640" height="480" autoplay muted playsinline></video>
+        <canvas id="output" width="640" height="480"></canvas>
+    </div>
+
+    <script>
+        let sCount = 0, sStage = "up";
+        let hCount = 0, hStage = "down";
+        
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d');
+
+        function findAngle(A, B, C) {
+            let radians = Math.atan2(C.y - B.y, C.x - B.x) - Math.atan2(A.y - B.y, A.x - B.x);
+            let angle = Math.abs(radians * 180.0 / Math.PI);
+            if (angle > 180.0) angle = 360 - angle;
+            return angle;
+        }
+
+        async function main() {
+            const net = await posenet.load({ architecture: 'MobileNetV1', multiplier: 0.5, inputResolution: 257 });
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+
+            async function detect() {
+                const pose = await net.estimateSinglePose(video);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (pose.score > 0.1) {
+                    const kp = pose.keypoints;
+
+                    // 1. SQUAT LOGIC (Using Left Leg: Hip 11, Knee 13, Ankle 15)
+                    const angle = findAngle(kp[11].position, kp[13].position, kp[15].position);
+                    
+                    // DEBUG DRAW: Show angle on knee
+                    ctx.fillStyle = "yellow";
+                    ctx.font = "20px Arial";
+                    ctx.fillText(Math.round(angle) + "°", kp[13].position.x, kp[13].position.y);
+
+                    if (angle < 110) sStage = "down"; // Threshold eased to 110
+                    if (angle > 150 && sStage === "down") {
+                        sStage = "up";
+                        sCount++;
+                        document.getElementById('s-count').innerText = sCount;
+                    }
+
+                    // 2. HANDS UP LOGIC (Wrist 9/10 < Shoulder 5/6)
+                    const handsAbove = (kp[9].position.y < kp[5].position.y) && (kp[10].position.y < kp[6].position.y);
+                    
+                    if (handsAbove && hStage === "down") {
+                        hStage = "up";
+                        hCount++;
+                        document.getElementById('h-count').innerText = hCount;
+                    } else if (!handsAbove) {
+                        hStage = "down";
+                    }
+
+                    // DRAW JOINTS
+                    kp.forEach(point => {
+                        if (point.score > 0.2) {
+                            ctx.beginPath();
+                            ctx.arc(point.position.x, point.position.y, 5, 0, 2*Math.PI);
+                            ctx.fillStyle = "#00ffcc";
+                            ctx.fill();
+                        }
+                    });
+                }
+                requestAnimationFrame(detect);
+            }
+            detect();
+        }
+        main();
+    </script>
+</body>
+</html>

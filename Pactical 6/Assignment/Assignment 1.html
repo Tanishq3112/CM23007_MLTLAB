@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PoseNet Skeleton Tracker</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f0f0f;
+            color: #00ffcc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+        }
+        .container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        /* Mirroring: Standard for webcams so right is right */
+        video, canvas {
+            transform: scaleX(-1);
+            border-radius: 10px;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        .info {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #333;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="info">
+        <h2>Live Pose Analysis</h2>
+        <p id="status">Status: Loading AI...</p>
+    </div>
+
+    <div class="container">
+        <video id="video" width="640" height="480" autoplay muted playsinline></video>
+        <canvas id="output" width="640" height="480"></canvas>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d');
+
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480 }
+            });
+            video.srcObject = stream;
+            return new Promise(resolve => video.onloadedmetadata = () => resolve(video));
+        }
+
+        /**
+         * 1. Draws the Circles on joints
+         */
+        function drawPoints(keypoints) {
+            keypoints.forEach(point => {
+                if (point.score > 0.5) { // Only draw if high confidence
+                    ctx.beginPath();
+                    ctx.arc(point.position.x, point.position.y, 5, 0, 2 * Math.PI);
+                    ctx.fillStyle = "#00ffcc";
+                    ctx.fill();
+                }
+            });
+        }
+
+        /**
+         * 2. Draws the Lines (The Skeleton)
+         */
+        function drawSkeleton(keypoints) {
+            const adjacentKeyPoints = posenet.getAdjacentKeyPoints(keypoints, 0.5);
+
+            adjacentKeyPoints.forEach((pair) => {
+                ctx.beginPath();
+                ctx.moveTo(pair[0].position.x, pair[0].position.y);
+                ctx.lineTo(pair[1].position.x, pair[1].position.y);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "#ff00ff"; // Magenta for contrast
+                ctx.stroke();
+            });
+        }
+
+        async function runPosenet() {
+            // Loading the 'Small' version for speed (multiplier: 0.5)
+            const net = await posenet.load({
+                architecture: 'MobileNetV1',
+                outputStride: 16,
+                inputResolution: { width: 257, height: 257 },
+                multiplier: 0.5
+            });
+
+            document.getElementById('status').innerText = "Status: AI Active";
+            await setupCamera();
+
+            async function detect() {
+                const pose = await net.estimateSinglePose(video, {
+                    flipHorizontal: false // Already flipped in CSS
+                });
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // This is where the visualization happens
+                drawSkeleton(pose.keypoints);
+                drawPoints(pose.keypoints);
+
+                requestAnimationFrame(detect);
+            }
+            detect();
+        }
+
+        runPosenet();
+    </script>
+</body>
+</html>

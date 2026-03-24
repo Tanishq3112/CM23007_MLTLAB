@@ -1,0 +1,129 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PoseNet: Single vs Multi-Pose Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: white; text-align: center; }
+        .controls { background: #1a1a1a; padding: 20px; border-bottom: 2px solid #333; }
+        .container { position: relative; margin-top: 20px; display: inline-block; }
+        video, canvas { transform: scaleX(-1); border-radius: 8px; }
+        canvas { position: absolute; top: 0; left: 0; }
+        .stat-box { display: flex; justify-content: center; gap: 30px; margin: 15px; font-weight: bold; }
+        .mode-btn { 
+            padding: 10px 20px; cursor: pointer; border: none; border-radius: 5px; 
+            background: #444; color: white; font-size: 1rem; transition: 0.3s;
+        }
+        .active { background: #00ffcc; color: black; }
+        #log { color: #ffcc00; font-family: monospace; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <h2>PoseNet Accuracy Analysis Lab</h2>
+        <button id="btnSingle" class="mode-btn active" onclick="setMode('single')">Single-Pose Mode</button>
+        <button id="btnMulti" class="mode-btn" onclick="setMode('multi')">Multi-Pose Mode</button>
+        
+        <div class="stat-box">
+            <div>Current Mode: <span id="displayMode" style="color:#00ffcc">Single</span></div>
+            <div>Inference Time: <span id="ms" style="color:#ff00ff">0</span>ms</div>
+        </div>
+        <div id="log">Detection logs will appear here...</div>
+    </div>
+
+    <div class="container">
+        <video id="video" width="640" height="480" autoplay muted playsinline></video>
+        <canvas id="output" width="640" height="480"></canvas>
+    </div>
+
+    <script>
+        let mode = 'single'; 
+        let net;
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d');
+
+        function setMode(newMode) {
+            mode = newMode;
+            document.getElementById('btnSingle').classList.toggle('active', mode === 'single');
+            document.getElementById('btnMulti').classList.toggle('active', mode === 'multi');
+            document.getElementById('displayMode').innerText = mode.toUpperCase();
+        }
+
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            return new Promise(resolve => video.onloadedmetadata = () => resolve(video));
+        }
+
+        function drawPose(pose) {
+            if (pose.score < 0.15) return;
+            
+            // Draw Skeleton
+            const adjacent = posenet.getAdjacentKeyPoints(pose.keypoints, 0.2);
+            adjacent.forEach(pair => {
+                ctx.beginPath();
+                ctx.moveTo(pair[0].position.x, pair[0].position.y);
+                ctx.lineTo(pair[1].position.x, pair[1].position.y);
+                ctx.strokeStyle = mode === 'single' ? "#00ffcc" : "#ff00ff";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+
+            // Draw Keypoints
+            pose.keypoints.forEach(kp => {
+                if (kp.score > 0.2) {
+                    ctx.beginPath();
+                    ctx.arc(kp.position.x, kp.position.y, 4, 0, 2*Math.PI);
+                    ctx.fillStyle = "white";
+                    ctx.fill();
+                }
+            });
+        }
+
+        async function loop() {
+            const start = performance.now();
+            let poses = [];
+
+            if (mode === 'single') {
+                const pose = await net.estimateSinglePose(video, { flipHorizontal: false });
+                poses.push(pose);
+            } else {
+                // Multi-pose requires more complex decoding logic
+                poses = await net.estimateMultiplePoses(video, {
+                    flipHorizontal: false,
+                    maxDetections: 5,
+                    scoreThreshold: 0.5,
+                    nmsRadius: 20 // Prevents multiple detections for the same person
+                });
+            }
+
+            const end = performance.now();
+            document.getElementById('ms').innerText = (end - start).toFixed(1);
+            document.getElementById('log').innerText = `Detected ${poses.length} person(s)`;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            poses.forEach(pose => drawPose(pose));
+
+            requestAnimationFrame(loop);
+        }
+
+        async function main() {
+            net = await posenet.load({
+                architecture: 'MobileNetV1',
+                multiplier: 0.5, // Lightweight version
+                inputResolution: 257
+            });
+            await setupCamera();
+            video.play();
+            loop();
+        }
+
+        main();
+    </script>
+</body>
+</html>
