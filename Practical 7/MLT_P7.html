@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linear Regression in Browser</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.12.0/dist/tf.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .container { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        input { padding: 8px; margin: 5px; width: 100px; }
+        #prediction { font-size: 24px; font-weight: bold; color: #28a745; }
+        .status { margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>🧠 Linear Regression Model in Browser</h1>
+    
+    <div class="container">
+        <h2>1. Train Model</h2>
+        <button onclick="trainModel()">🚀 Train New Model</button>
+        <div id="trainingStatus"></div>
+    </div>
+
+    <div class="container">
+        <h2>2. Save/Load Model</h2>
+        <button onclick="saveModel()">💾 Save Model Locally</button>
+        <button onclick="loadModel()">📂 Load Model</button>
+        <div id="modelStatus">No model loaded</div>
+    </div>
+
+    <div class="container">
+        <h2>3. Make Predictions</h2>
+        <label>Input Value: </label>
+        <input type="number" id="inputValue" value="5" step="0.1">
+        <button onclick="predict()">🔮 Predict</button>
+        <div id="prediction">-</div>
+        <canvas id="chart" width="600" height="300"></canvas>
+    </div>
+
+    <script>
+        let model = null;
+        let isModelLoaded = false;
+
+        // 1. TRAIN MODEL
+        async function trainModel() {
+            const status = document.getElementById('trainingStatus');
+            status.innerHTML = '⏳ Training model...';
+            
+            try {
+                // Generate sample data (y = 2x + 1 + noise)
+                const xs = tf.linspace(0, 10, 100);
+                const ys = xs.mul(2).add(1).add(tf.randomNormal([100], 0, 0.5));
+                
+                // Create and train model
+                model = tf.sequential({
+                    layers: [
+                        tf.layers.dense({inputShape: [1], units: 1})
+                    ]
+                });
+                
+                model.compile({optimizer: 'adam', loss: 'meanSquaredError'});
+                
+                await model.fit(xs, ys, {
+                    epochs: 200,
+                    callbacks: {
+                        onEpochEnd: (epoch, logs) => {
+                            if (epoch % 50 === 0) {
+                                status.innerHTML = `⏳ Epoch ${epoch}: loss = ${logs.loss.toFixed(4)}`;
+                            }
+                        }
+                    }
+                });
+                
+                isModelLoaded = true;
+                document.getElementById('modelStatus').innerHTML = '✅ Model trained and ready!';
+                status.innerHTML = '🎉 Model trained successfully!';
+                drawChart();
+                
+            } catch (error) {
+                status.innerHTML = `❌ Error: ${error.message}`;
+            }
+        }
+
+        // 2. SAVE MODEL LOCALLY
+        async function saveModel() {
+            if (!model) {
+                alert('Please train a model first!');
+                return;
+            }
+            
+            try {
+                await model.save('localstorage://linear-regression-model');
+                document.getElementById('modelStatus').innerHTML = '💾 Model saved locally!';
+            } catch (error) {
+                console.error('Save error:', error);
+            }
+        }
+
+        // 3. LOAD MODEL
+        async function loadModel() {
+            const status = document.getElementById('modelStatus');
+            status.innerHTML = '📂 Loading model...';
+            
+            try {
+                const loadedModel = await tf.loadLayersModel('localstorage://linear-regression-model');
+                model = loadedModel;
+                isModelLoaded = true;
+                status.innerHTML = '✅ Model loaded from local storage!';
+                drawChart();
+            } catch (error) {
+                status.innerHTML = '❌ No saved model found. Train one first!';
+            }
+        }
+
+        // 4. MAKE PREDICTION
+        async function predict() {
+            if (!model) {
+                alert('Please train or load a model first!');
+                return;
+            }
+            
+            const inputValue = parseFloat(document.getElementById('inputValue').value);
+            const tensor = tf.tensor2d([[inputValue]]);
+            
+            const prediction = model.predict(tensor);
+            const result = await prediction.data();
+            
+            document.getElementById('prediction').innerHTML = 
+                `Prediction: ${result[0].toFixed(2)}`;
+            
+            tensor.dispose();
+            prediction.dispose();
+            drawChart();
+        }
+
+        // 5. VISUALIZE RESULTS
+        function drawChart() {
+            const canvas = document.getElementById('chart');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Clear canvas
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw axes
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(50, 50);
+            ctx.lineTo(50, height - 50);
+            ctx.lineTo(width - 50, height - 50);
+            ctx.stroke();
+            
+            // Draw training data points (if model exists)
+            if (model) {
+                const testXs = tf.linspace(0, 10, 100);
+                const predictions = model.predict(testXs.reshape([100, 1]));
+                const predData = predictions.dataSync();
+                
+                // Draw model line
+                ctx.strokeStyle = '#007bff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                for (let i = 0; i < predData.length; i++) {
+                    const x = 50 + (i / 99) * (width - 100);
+                    const y = height - 50 - (predData[i] / 12) * (height - 100);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+                
+                testXs.dispose();
+                predictions.dispose();
+            }
+            
+            // Labels
+            ctx.fillStyle = 'black';
+            ctx.font = '14px Arial';
+            ctx.fillText('X', width - 60, height - 30);
+            ctx.fillText('Y', 30, 70);
+        }
+
+        // Initialize
+        window.onload = function() {
+            drawChart();
+        };
+    </script>
+</body>
+</html>
