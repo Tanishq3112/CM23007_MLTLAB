@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Squat Counter AI</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+
+  <style>
+    body {
+      margin: 0;
+      background: #020617;
+      color: white;
+      font-family: Arial;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 10px;
+    }
+
+    .container {
+      position: relative;
+      display: inline-block;
+    }
+
+    video, canvas {
+      border-radius: 12px;
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .counter {
+      font-size: 28px;
+      margin-top: 10px;
+      color: #22c55e;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🏋️ Squat Counter (AI Pose Detection)</h1>
+
+<div class="container">
+  <video id="video" width="600" height="500" autoplay></video>
+  <canvas id="canvas" width="600" height="500"></canvas>
+</div>
+
+<div class="counter">
+  Reps: <span id="count">0</span>
+</div>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const countDisplay = document.getElementById("count");
+
+let count = 0;
+let stage = "up"; // up or down
+
+async function setupCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+
+  return new Promise(resolve => {
+    video.onloadedmetadata = () => resolve(video);
+  });
+}
+
+// Calculate angle
+function getAngle(A, B, C) {
+  const AB = { x: A.x - B.x, y: A.y - B.y };
+  const CB = { x: C.x - B.x, y: C.y - B.y };
+
+  const dot = AB.x * CB.x + AB.y * CB.y;
+  const magAB = Math.sqrt(AB.x ** 2 + AB.y ** 2);
+  const magCB = Math.sqrt(CB.x ** 2 + CB.y ** 2);
+
+  let angle = Math.acos(dot / (magAB * magCB));
+  return angle * (180 / Math.PI);
+}
+
+function drawText(text, x, y) {
+  ctx.fillStyle = "yellow";
+  ctx.font = "18px Arial";
+  ctx.fillText(text, x, y);
+}
+
+async function detect() {
+  const net = await posenet.load();
+
+  while (true) {
+    const pose = await net.estimateSinglePose(video, {
+      flipHorizontal: true
+    });
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const kp = pose.keypoints;
+
+    const leftHip = kp.find(k => k.part === "leftHip").position;
+    const leftKnee = kp.find(k => k.part === "leftKnee").position;
+    const leftAnkle = kp.find(k => k.part === "leftAnkle").position;
+
+    const angle = getAngle(leftHip, leftKnee, leftAnkle);
+
+    // Display angle
+    drawText("Angle: " + angle.toFixed(1), leftKnee.x, leftKnee.y);
+
+    // Squat logic
+    if (angle > 160) {
+      stage = "up";
+    }
+
+    if (angle < 90 && stage === "up") {
+      stage = "down";
+      count++;
+      countDisplay.innerText = count;
+    }
+
+    requestAnimationFrame(() => {});
+  }
+}
+
+async function main() {
+  await setupCamera();
+  video.play();
+  detect();
+}
+
+main();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hand Gesture Recognition</title>
+
+<!-- TensorFlow.js -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+
+<!-- Handpose Model -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
+
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', sans-serif;
+  }
+
+  body {
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+
+  .container {
+    text-align: center;
+    background: rgba(255,255,255,0.08);
+    padding: 25px;
+    border-radius: 20px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  }
+
+  h1 {
+    margin-bottom: 15px;
+  }
+
+  video {
+    border-radius: 15px;
+    margin-top: 10px;
+  }
+
+  .output {
+    margin-top: 15px;
+    font-size: 20px;
+    font-weight: bold;
+  }
+
+  button {
+    margin-top: 15px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    cursor: pointer;
+    background: #00c853;
+    color: white;
+    transition: 0.3s;
+  }
+
+  button:hover {
+    transform: scale(1.05);
+  }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <h1>🖐️ Hand Gesture Recognition</h1>
+
+  <video id="video" width="300" height="250" autoplay></video>
+
+  <div class="output" id="gesture">Detecting...</div>
+
+  <button onclick="start()">Start Camera</button>
+</div>
+
+<script>
+let model;
+let video = document.getElementById("video");
+
+async function start() {
+  // Start webcam
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+
+  // Load model
+  model = await handpose.load();
+
+  detect();
+}
+
+async function detect() {
+  const predictions = await model.estimateHands(video);
+
+  if (predictions.length > 0) {
+    const landmarks = predictions[0].landmarks;
+
+    // Simple gesture logic
+    const thumb = landmarks[4];
+    const index = landmarks[8];
+
+    // Distance between thumb & index
+    const distance = Math.hypot(
+      thumb[0] - index[0],
+      thumb[1] - index[1]
+    );
+
+    let gesture = "";
+
+    if (distance < 40) {
+      gesture = "👌 OK Gesture";
+    } else if (index[1] < landmarks[6][1]) {
+      gesture = "☝️ Pointing Up";
+    } else {
+      gesture = "✋ Open Hand";
+    }
+
+    document.getElementById("gesture").innerText = gesture;
+  } else {
+    document.getElementById("gesture").innerText = "No Hand Detected";
+  }
+
+  requestAnimationFrame(detect);
+}
+</script>
+
+</body>
+</html>

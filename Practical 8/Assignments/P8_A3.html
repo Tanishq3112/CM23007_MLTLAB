@@ -1,0 +1,38 @@
+<script>
+async function addNewClass(newClassName) {
+
+  classes.push(newClassName);
+
+  // Rebuild classifier with new output size
+  classifier = tf.sequential([
+    tf.layers.dense({inputShape: [1024], units: 128, activation: 'relu'}),
+    tf.layers.dense({units: classes.length, activation: 'softmax'})
+  ]);
+
+  classifier.compile({
+    optimizer: 'adam',
+    loss: 'categoricalCrossentropy',
+    metrics: ['accuracy']
+  });
+
+  // Convert old labels to new format
+  labels = labels.map(l => {
+    let newLabel = [...l, 0];
+    return newLabel;
+  });
+
+  alert("New class added: " + newClassName);
+}
+
+async function retrain() {
+  const xs = tf.concat(trainingData);
+  const ys = tf.tensor2d(labels);
+
+  await classifier.fit(xs, ys, { epochs: 10 });
+
+  alert("Retrained with new class!");
+}
+</script>
+
+<button onclick="addNewClass('mango')">Add Mango</button>
+<button onclick="retrain()">Retrain</button>

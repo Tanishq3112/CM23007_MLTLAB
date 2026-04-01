@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Single vs Multi Pose Accuracy</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+  <style>
+    body {
+      margin: 0;
+      background: #0f172a;
+      color: white;
+      font-family: Arial;
+      text-align: center;
+    }
+
+    .container {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-top: 10px;
+    }
+
+    canvas {
+      border-radius: 10px;
+    }
+
+    h2 {
+      margin: 5px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>🧍 Single vs Multi Pose Accuracy Comparison</h1>
+
+<video id="video" width="640" height="480" autoplay muted style="display:none"></video>
+
+<div class="container">
+  <div>
+    <h2>Single Pose</h2>
+    <canvas id="canvas1" width="640" height="480"></canvas>
+    <p>Confidence: <span id="conf1">0</span></p>
+  </div>
+
+  <div>
+    <h2>Multi Pose</h2>
+    <canvas id="canvas2" width="640" height="480"></canvas>
+    <p>Confidence: <span id="conf2">0</span></p>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById("video");
+
+async function setupCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+
+  return new Promise(resolve => {
+    video.onloadedmetadata = () => resolve(video);
+  });
+}
+
+function drawPose(ctx, pose) {
+  pose.keypoints.forEach(kp => {
+    if (kp.score > 0.4) {
+      ctx.beginPath();
+      ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = "cyan";
+      ctx.fill();
+    }
+  });
+}
+
+function getAvgConfidence(pose) {
+  let sum = 0;
+  pose.keypoints.forEach(k => sum += k.score);
+  return sum / pose.keypoints.length;
+}
+
+async function main() {
+  await setupCamera();
+  video.play();
+
+  const detectorSingle = await poseDetection.createDetector(
+    poseDetection.SupportedModels.MoveNet,
+    { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+  );
+
+  const detectorMulti = await poseDetection.createDetector(
+    poseDetection.SupportedModels.MoveNet,
+    { modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING }
+  );
+
+  const canvas1 = document.getElementById("canvas1");
+  const canvas2 = document.getElementById("canvas2");
+
+  const ctx1 = canvas1.getContext("2d");
+  const ctx2 = canvas2.getContext("2d");
+
+  while (true) {
+
+    // -------- Single Pose --------
+    const poses1 = await detectorSingle.estimatePoses(video);
+    ctx1.clearRect(0, 0, 640, 480);
+
+    if (poses1.length > 0) {
+      drawPose(ctx1, poses1[0]);
+      let conf = getAvgConfidence(poses1[0]);
+      document.getElementById("conf1").innerText = conf.toFixed(2);
+    }
+
+    // -------- Multi Pose --------
+    const poses2 = await detectorMulti.estimatePoses(video);
+    ctx2.clearRect(0, 0, 640, 480);
+
+    let totalConf = 0;
+
+    poses2.forEach(pose => {
+      drawPose(ctx2, pose);
+      totalConf += getAvgConfidence(pose);
+    });
+
+    if (poses2.length > 0) {
+      document.getElementById("conf2").innerText =
+        (totalConf / poses2.length).toFixed(2);
+    }
+
+    requestAnimationFrame(() => {});
+  }
+}
+
+main();
+</script>
+
+</body>
+</html>

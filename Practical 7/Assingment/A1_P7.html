@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pose Detection - TensorFlow.js</title>
+
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+
+  <!-- PoseNet Model -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+
+  <style>
+    body {
+      margin: 0;
+      background: #0f172a;
+      color: white;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 15px;
+      font-size: 24px;
+    }
+
+    .container {
+      position: relative;
+      display: inline-block;
+    }
+
+    video {
+      border-radius: 12px;
+    }
+
+    canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🧍 Human Pose Detection (Live Webcam)</h1>
+
+  <div class="container">
+    <video id="video" width="600" height="500" autoplay muted></video>
+    <canvas id="canvas" width="600" height="500"></canvas>
+  </div>
+
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true
+      });
+      video.srcObject = stream;
+
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => resolve(video);
+      });
+    }
+
+    function drawKeypoints(keypoints, minConfidence = 0.5) {
+      keypoints.forEach(keypoint => {
+        if (keypoint.score > minConfidence) {
+          const { x, y } = keypoint.position;
+          ctx.beginPath();
+          ctx.arc(x, y, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = "cyan";
+          ctx.fill();
+        }
+      });
+    }
+
+    function drawSkeleton(keypoints, minConfidence = 0.5) {
+      const adjacentKeyPoints = posenet.getAdjacentKeyPoints(keypoints, minConfidence);
+
+      adjacentKeyPoints.forEach(([kp1, kp2]) => {
+        ctx.beginPath();
+        ctx.moveTo(kp1.position.x, kp1.position.y);
+        ctx.lineTo(kp2.position.x, kp2.position.y);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "lime";
+        ctx.stroke();
+      });
+    }
+
+    async function detectPose() {
+      const net = await posenet.load();
+
+      while (true) {
+        const pose = await net.estimateSinglePose(video, {
+          flipHorizontal: true
+        });
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        drawKeypoints(pose.keypoints);
+        drawSkeleton(pose.keypoints);
+
+        requestAnimationFrame(() => {});
+      }
+    }
+
+    async function main() {
+      await setupCamera();
+      video.play();
+      detectPose();
+    }
+
+    main();
+  </script>
+
+</body>
+</html>

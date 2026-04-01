@@ -1,0 +1,46 @@
+<script>
+function getPredictionIndex(pred) {
+  return pred.indexOf(Math.max(...pred));
+}
+
+function confusionMatrix(yTrue, yPred, numClasses) {
+  let matrix = Array.from({length: numClasses}, () =>
+    Array(numClasses).fill(0)
+  );
+
+  for (let i = 0; i < yTrue.length; i++) {
+    matrix[yTrue[i]][yPred[i]]++;
+  }
+  return matrix;
+}
+
+async function evaluate() {
+
+  let yTrue = [];
+  let yPred = [];
+
+  for (let i = 0; i < trainingData.length; i++) {
+    const pred = classifier.predict(trainingData[i]);
+    const predArr = await pred.data();
+
+    yPred.push(getPredictionIndex(predArr));
+    yTrue.push(getPredictionIndex(labels[i]));
+  }
+
+  const matrix = confusionMatrix(yTrue, yPred, 3);
+
+  console.log("Confusion Matrix:");
+  console.table(matrix);
+
+  // Accuracy
+  let correct = 0;
+  for (let i = 0; i < yTrue.length; i++) {
+    if (yTrue[i] === yPred[i]) correct++;
+  }
+
+  let accuracy = correct / yTrue.length;
+  console.log("Accuracy:", accuracy);
+}
+</script>
+
+<button onclick="evaluate()">Evaluate Model</button>

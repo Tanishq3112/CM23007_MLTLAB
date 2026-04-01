@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fruit Classifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+</head>
+
+<body>
+<h2>🍎 Fruit Classifier (3 Classes)</h2>
+
+<input type="file" id="upload" multiple />
+<button onclick="train()">Train Model</button>
+
+<script>
+let mobilenetModel;
+let classifier;
+let trainingData = [];
+let labels = [];
+
+const classes = ["apple", "banana", "orange"];
+
+async function loadModel() {
+  mobilenetModel = await mobilenet.load();
+  classifier = tf.sequential([
+    tf.layers.dense({inputShape: [1024], units: 128, activation: 'relu'}),
+    tf.layers.dense({units: 3, activation: 'softmax'})
+  ]);
+
+  classifier.compile({
+    optimizer: 'adam',
+    loss: 'categoricalCrossentropy',
+    metrics: ['accuracy']
+  });
+}
+
+document.getElementById("upload").addEventListener("change", async (e) => {
+  const files = e.target.files;
+
+  for (let file of files) {
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+
+    await new Promise(res => img.onload = res);
+
+    const tensor = tf.browser.fromPixels(img)
+      .resizeNearestNeighbor([224, 224])
+      .toFloat()
+      .expandDims();
+
+    const features = mobilenetModel.infer(tensor, true);
+
+    trainingData.push(features);
+
+    // Assign label manually (example: based on filename)
+    if (file.name.includes("apple")) labels.push([1,0,0]);
+    else if (file.name.includes("banana")) labels.push([0,1,0]);
+    else labels.push([0,0,1]);
+  }
+
+  alert("Images Loaded!");
+});
+
+async function train() {
+  const xs = tf.concat(trainingData);
+  const ys = tf.tensor2d(labels);
+
+  await classifier.fit(xs, ys, {
+    epochs: 10,
+    callbacks: {
+      onEpochEnd: (e, logs) =>
+        console.log(`Epoch ${e}: Loss=${logs.loss}`)
+    }
+  });
+
+  alert("Training Complete!");
+}
+
+loadModel();
+</script>
+</body>
+</html>

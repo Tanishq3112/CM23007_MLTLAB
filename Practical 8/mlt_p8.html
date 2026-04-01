@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🍎 Fruit Classifier AI</title>
+
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+
+  <!-- MobileNet Model -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #1e3c72, #2a5298);
+      color: white;
+      text-align: center;
+    }
+
+    .container {
+      margin-top: 60px;
+    }
+
+    h1 {
+      font-size: 40px;
+    }
+
+    p {
+      opacity: 0.8;
+    }
+
+    input {
+      margin: 20px;
+      padding: 10px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+    }
+
+    img {
+      width: 250px;
+      margin-top: 20px;
+      border-radius: 20px;
+      box-shadow: 0px 10px 30px rgba(0,0,0,0.3);
+    }
+
+    #result {
+      margin-top: 20px;
+      font-size: 22px;
+      font-weight: bold;
+    }
+
+    .loader {
+      margin-top: 20px;
+      display: none;
+    }
+
+    .bar {
+      height: 10px;
+      width: 0%;
+      background: lime;
+      margin: 10px auto;
+      border-radius: 10px;
+      transition: width 0.5s;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+  <h1>🍓 Fruit Classifier AI</h1>
+  <p>Upload an image and let AI recognize it</p>
+
+  <input type="file" id="imageUpload" accept="image/*">
+
+  <br>
+  <img id="preview" />
+
+  <div class="loader">🔄 AI is thinking...</div>
+
+  <div id="result">Prediction will appear here</div>
+
+  <div class="bar" id="confidenceBar"></div>
+</div>
+
+<script>
+let model;
+
+// Load MobileNet
+async function loadModel() {
+  document.querySelector(".loader").style.display = "block";
+  model = await mobilenet.load();
+  document.querySelector(".loader").style.display = "none";
+  document.getElementById("result").innerHTML = "✅ Model Loaded. Upload Image!";
+}
+
+loadModel();
+
+// Image Upload Handler
+document.getElementById("imageUpload").addEventListener("change", function (event) {
+  const file = event.target.files[0];
+  const img = document.getElementById("preview");
+
+  img.src = URL.createObjectURL(file);
+
+  img.onload = () => {
+    classifyImage(img);
+  };
+});
+
+// Classification Function
+async function classifyImage(img) {
+  document.querySelector(".loader").style.display = "block";
+
+  const predictions = await model.classify(img);
+
+  document.querySelector(".loader").style.display = "none";
+
+  const top = predictions[0];
+
+  // Show result
+  document.getElementById("result").innerHTML =
+    `🍍 Prediction: ${top.className} <br>
+     🔥 Confidence: ${(top.probability * 100).toFixed(2)}%`;
+
+  // Confidence bar
+  document.getElementById("confidenceBar").style.width =
+    (top.probability * 100) + "%";
+}
+</script>
+
+</body>
+</html>
